@@ -29,3 +29,12 @@ test("content script runs on ordinary HTTP and HTTPS pages", () => {
   const matches = manifest.content_scripts[0].matches;
   assert.deepEqual(matches, ["http://*/*", "https://*/*"]);
 });
+
+test("color picker previews the highlight with dark and light page text", () => {
+  const popupHtml = readFileSync(resolve(root, "popup.html"), "utf8");
+  const popupCss = readFileSync(resolve(root, "popup.css"), "utf8");
+  assert.match(popupHtml, /class="preview-surface preview-light"/);
+  assert.match(popupHtml, /class="preview-surface preview-dark"/);
+  assert.match(popupCss, /\.preview-dark\s*\{[^}]*color:\s*#f8fafc/s);
+  assert.match(popupCss, /rgb\(var\(--preview-rgb\)\s*\/\s*82%\)/);
+});

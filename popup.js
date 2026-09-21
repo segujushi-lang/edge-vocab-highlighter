@@ -10,7 +10,8 @@
     normalizeKey,
     sanitizeEntries,
     normalizeHighlightColor,
-    sanitizeSettings
+    sanitizeSettings,
+    getHighlightRgb
   } = globalThis.VocabGlowUtils;
 
   let entries = {};
@@ -21,7 +22,7 @@
     enabledToggle: document.getElementById("enabledToggle"),
     highlightColorInput: document.getElementById("highlightColorInput"),
     highlightColorValue: document.getElementById("highlightColorValue"),
-    highlightSample: document.getElementById("highlightSample"),
+    highlightPreview: document.getElementById("highlightPreview"),
     resetColorButton: document.getElementById("resetColorButton"),
     addForm: document.getElementById("addForm"),
     addButton: document.getElementById("addButton"),
@@ -262,8 +263,9 @@
 
   function renderColorPreview(highlightColor) {
     const color = normalizeHighlightColor(highlightColor);
+    const { red, green, blue } = getHighlightRgb(color);
     elements.highlightColorValue.textContent = color.toLocaleUpperCase("en-US");
-    elements.highlightSample.style.setProperty("--preview-color", color);
+    elements.highlightPreview.style.setProperty("--preview-rgb", `${red} ${green} ${blue}`);
   }
 
   function createWordItem(entry) {

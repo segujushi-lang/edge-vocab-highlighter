@@ -63,9 +63,17 @@ h1 { font: 750 25px/1.05 Georgia, "Times New Roman", serif; margin: 0; }
 .compact-heading { justify-content: flex-start; margin-bottom: 2px; }
 .compact-heading output { color: #8b735c; font: 700 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .appearance-copy p { color: var(--muted); font-size: 10px; margin: 0; }
+.highlight-previews {
+  --preview-rgb: 255 221 87;
+  border: 1px solid #d7d1c3; border-radius: 8px; display: flex; flex: none; overflow: hidden;
+}
+.preview-surface { align-items: center; display: flex; height: 30px; justify-content: center; width: 31px; }
+.preview-surface + .preview-surface { border-left: 1px solid rgba(116,128,149,.35); }
+.preview-light { background: #fff; color: var(--ink); }
+.preview-dark { background: #172033; color: #f8fafc; }
 .highlight-sample {
-  background: linear-gradient(180deg, transparent 0 30%, var(--preview-color, #ffdd57) 30% 94%, transparent 94%);
-  color: var(--ink); font: 700 16px/1.2 Georgia, serif; padding: 2px 3px; transition: background .15s ease;
+  background: linear-gradient(180deg, transparent 0 30%, rgb(var(--preview-rgb) / 82%) 30% 94%, transparent 94%);
+  color: inherit; font: 700 15px/1.2 Georgia, serif; padding: 2px; transition: background .15s ease;
 }
 .color-input {
   background: #fff; border: 1px solid #d7d1c3; border-radius: 9px; cursor: pointer; height: 32px;
