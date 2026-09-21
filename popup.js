@@ -3,11 +3,14 @@
 
   const {
     STORAGE_KEYS,
+    DEFAULT_HIGHLIGHT_COLOR,
     DEFAULT_SETTINGS,
     cleanWord,
     isValidWord,
     normalizeKey,
-    sanitizeEntries
+    sanitizeEntries,
+    normalizeHighlightColor,
+    sanitizeSettings
   } = globalThis.VocabGlowUtils;
 
   let entries = {};
@@ -16,6 +19,10 @@
 
   const elements = {
     enabledToggle: document.getElementById("enabledToggle"),
+    highlightColorInput: document.getElementById("highlightColorInput"),
+    highlightColorValue: document.getElementById("highlightColorValue"),
+    highlightSample: document.getElementById("highlightSample"),
+    resetColorButton: document.getElementById("resetColorButton"),
     addForm: document.getElementById("addForm"),
     addButton: document.getElementById("addButton"),
     wordInput: document.getElementById("wordInput"),
@@ -32,6 +39,9 @@
 
   elements.addForm.addEventListener("submit", (event) => void handleAdd(event));
   elements.enabledToggle.addEventListener("change", () => void handleToggle());
+  elements.highlightColorInput.addEventListener("input", handleColorPreview);
+  elements.highlightColorInput.addEventListener("change", () => void handleColorChange());
+  elements.resetColorButton.addEventListener("click", () => void handleColorReset());
   elements.searchInput.addEventListener("input", render);
   elements.wordList.addEventListener("click", (event) => void handleListClick(event));
   elements.clearButton.addEventListener("click", () => void handleClear());
@@ -46,7 +56,7 @@
         throw new Error(response.error || "读取词库失败");
       }
       entries = sanitizeEntries(response.entries);
-      settings = { ...DEFAULT_SETTINGS, ...(response.settings || {}) };
+      settings = sanitizeSettings(response.settings);
       render();
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "读取词库失败", "error");
@@ -96,6 +106,40 @@
       showNotice(error instanceof Error ? error.message : "设置失败", "error");
     } finally {
       elements.enabledToggle.disabled = false;
+    }
+  }
+
+  function handleColorPreview() {
+    renderColorPreview(elements.highlightColorInput.value);
+  }
+
+  async function handleColorChange() {
+    await saveHighlightColor(elements.highlightColorInput.value, "高亮颜色已更新");
+  }
+
+  async function handleColorReset() {
+    await saveHighlightColor(DEFAULT_HIGHLIGHT_COLOR, "已恢复默认高亮颜色");
+  }
+
+  async function saveHighlightColor(highlightColor, successMessage) {
+    const previousColor = settings.highlightColor;
+    elements.highlightColorInput.disabled = true;
+    elements.resetColorButton.disabled = true;
+    try {
+      const response = await sendMessage({ type: "SET_HIGHLIGHT_COLOR", highlightColor });
+      if (!response.ok) {
+        throw new Error(response.error || "颜色设置失败");
+      }
+      settings = sanitizeSettings(response.settings);
+      renderColorSetting();
+      showNotice(successMessage);
+    } catch (error) {
+      settings = sanitizeSettings({ ...settings, highlightColor: previousColor });
+      renderColorSetting();
+      showNotice(error instanceof Error ? error.message : "颜色设置失败", "error");
+    } finally {
+      elements.highlightColorInput.disabled = false;
+      elements.resetColorButton.disabled = settings.highlightColor === DEFAULT_HIGHLIGHT_COLOR;
     }
   }
 
@@ -182,7 +226,7 @@
       entries = sanitizeEntries(changes[STORAGE_KEYS.entries].newValue);
     }
     if (changes[STORAGE_KEYS.settings]) {
-      settings = { ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue || {}) };
+      settings = sanitizeSettings(changes[STORAGE_KEYS.settings].newValue);
     }
     render();
   }
@@ -201,11 +245,25 @@
     elements.wordList.classList.toggle("hidden", visibleEntries.length === 0);
     elements.clearButton.disabled = allEntries.length === 0;
     renderStatus();
+    renderColorSetting();
   }
 
   function renderStatus() {
     elements.enabledToggle.checked = Boolean(settings.enabled);
     elements.highlightStatus.textContent = settings.enabled ? "网页高亮已开启" : "网页高亮已暂停";
+  }
+
+  function renderColorSetting() {
+    const highlightColor = normalizeHighlightColor(settings.highlightColor);
+    elements.highlightColorInput.value = highlightColor;
+    elements.resetColorButton.disabled = highlightColor === DEFAULT_HIGHLIGHT_COLOR;
+    renderColorPreview(highlightColor);
+  }
+
+  function renderColorPreview(highlightColor) {
+    const color = normalizeHighlightColor(highlightColor);
+    elements.highlightColorValue.textContent = color.toLocaleUpperCase("en-US");
+    elements.highlightSample.style.setProperty("--preview-color", color);
   }
 
   function createWordItem(entry) {

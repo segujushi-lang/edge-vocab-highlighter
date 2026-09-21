@@ -62,6 +62,21 @@ test("sanitizes persisted entries and ignores invalid records", () => {
   assert.equal(entries.insight.translationStatus, "ready");
 });
 
+test("sanitizes highlight settings and converts the selected color to RGB", () => {
+  const settings = utils.sanitizeSettings({ enabled: false, highlightColor: " #12ABef " });
+  assert.equal(settings.enabled, false);
+  assert.equal(settings.highlightColor, "#12abef");
+
+  const fallback = utils.sanitizeSettings({ enabled: "false", highlightColor: "yellow" });
+  assert.equal(fallback.enabled, true);
+  assert.equal(fallback.highlightColor, utils.DEFAULT_HIGHLIGHT_COLOR);
+
+  const rgb = utils.getHighlightRgb(settings.highlightColor);
+  assert.equal(rgb.red, 18);
+  assert.equal(rgb.green, 171);
+  assert.equal(rgb.blue, 239);
+});
+
 test("decodes translation entities and recognizes Chinese text", () => {
   assert.equal(utils.decodeHtmlEntities("洞见 &amp; 灵感 &#x4E50;"), "洞见 & 灵感 乐");
   assert.equal(utils.hasChineseText("意外发现"), true);

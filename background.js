@@ -2,11 +2,13 @@ importScripts("shared.js");
 
 const {
   STORAGE_KEYS,
-  DEFAULT_SETTINGS,
   cleanWord,
   isValidWord,
   normalizeKey,
   sanitizeEntries,
+  isValidHighlightColor,
+  normalizeHighlightColor,
+  sanitizeSettings,
   decodeHtmlEntities,
   hasChineseText
 } = globalThis.VocabGlowUtils;
@@ -58,8 +60,14 @@ async function initializeStorage() {
     updates[STORAGE_KEYS.entries] = {};
   }
 
-  if (!stored[STORAGE_KEYS.settings] || typeof stored[STORAGE_KEYS.settings] !== "object") {
-    updates[STORAGE_KEYS.settings] = { ...DEFAULT_SETTINGS };
+  const storedSettings = stored[STORAGE_KEYS.settings];
+  if (
+    !storedSettings
+    || typeof storedSettings !== "object"
+    || typeof storedSettings.enabled !== "boolean"
+    || !isValidHighlightColor(storedSettings.highlightColor)
+  ) {
+    updates[STORAGE_KEYS.settings] = sanitizeSettings(storedSettings);
   }
 
   if (Object.keys(updates).length > 0) {
@@ -105,6 +113,8 @@ async function handleMessage(message, sender) {
       return { entry: await retryTranslation(message.key) };
     case "SET_ENABLED":
       return setEnabled(message.enabled);
+    case "SET_HIGHLIGHT_COLOR":
+      return setHighlightColor(message.highlightColor);
     case "CLEAR_WORDS":
       return clearWords();
     default:
@@ -133,10 +143,7 @@ async function getState() {
 
   return {
     entries,
-    settings: {
-      ...DEFAULT_SETTINGS,
-      ...(stored[STORAGE_KEYS.settings] || {})
-    }
+    settings: sanitizeSettings(stored[STORAGE_KEYS.settings])
   };
 }
 
@@ -315,7 +322,21 @@ async function retryTranslation(value) {
 
 async function setEnabled(enabled) {
   const { settings } = await getState();
-  const nextSettings = { ...settings, enabled: Boolean(enabled) };
+  const nextSettings = sanitizeSettings({ ...settings, enabled: Boolean(enabled) });
+  await chrome.storage.local.set({ [STORAGE_KEYS.settings]: nextSettings });
+  return { settings: nextSettings };
+}
+
+async function setHighlightColor(highlightColor) {
+  if (!isValidHighlightColor(highlightColor)) {
+    throw new Error("无效的高亮颜色");
+  }
+
+  const { settings } = await getState();
+  const nextSettings = sanitizeSettings({
+    ...settings,
+    highlightColor: normalizeHighlightColor(highlightColor)
+  });
   await chrome.storage.local.set({ [STORAGE_KEYS.settings]: nextSettings });
   return { settings: nextSettings };
 }

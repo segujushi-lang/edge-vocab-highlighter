@@ -6,12 +6,16 @@
     settings: "vocabSettings"
   });
 
+  const DEFAULT_HIGHLIGHT_COLOR = "#ffdd57";
+
   const DEFAULT_SETTINGS = Object.freeze({
-    enabled: true
+    enabled: true,
+    highlightColor: DEFAULT_HIGHLIGHT_COLOR
   });
 
   const WORD_PATTERN = /^[A-Za-z]+(?:['-][A-Za-z]+)*$/;
   const HAN_PATTERN = /[\u3400-\u9fff\uf900-\ufaff]/;
+  const HEX_COLOR_PATTERN = /^#[\da-f]{6}$/i;
 
   function cleanWord(value) {
     if (typeof value !== "string") {
@@ -88,6 +92,33 @@
     return sanitized;
   }
 
+  function isValidHighlightColor(value) {
+    return typeof value === "string" && HEX_COLOR_PATTERN.test(value.trim());
+  }
+
+  function normalizeHighlightColor(value) {
+    return isValidHighlightColor(value)
+      ? value.trim().toLocaleLowerCase("en-US")
+      : DEFAULT_HIGHLIGHT_COLOR;
+  }
+
+  function sanitizeSettings(value) {
+    const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    return {
+      enabled: typeof stored.enabled === "boolean" ? stored.enabled : DEFAULT_SETTINGS.enabled,
+      highlightColor: normalizeHighlightColor(stored.highlightColor)
+    };
+  }
+
+  function getHighlightRgb(value) {
+    const color = normalizeHighlightColor(value);
+    return {
+      red: Number.parseInt(color.slice(1, 3), 16),
+      green: Number.parseInt(color.slice(3, 5), 16),
+      blue: Number.parseInt(color.slice(5, 7), 16)
+    };
+  }
+
   function decodeHtmlEntities(value) {
     if (typeof value !== "string") {
       return "";
@@ -113,6 +144,7 @@
 
   global.VocabGlowUtils = Object.freeze({
     STORAGE_KEYS,
+    DEFAULT_HIGHLIGHT_COLOR,
     DEFAULT_SETTINGS,
     cleanWord,
     isValidWord,
@@ -120,6 +152,10 @@
     escapeRegExp,
     buildWordMatcher,
     sanitizeEntries,
+    isValidHighlightColor,
+    normalizeHighlightColor,
+    sanitizeSettings,
+    getHighlightRgb,
     decodeHtmlEntities,
     hasChineseText
   });

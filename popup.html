@@ -24,6 +24,19 @@
         <p class="subtitle">把陌生变成眼熟，再把眼熟变成掌握。</p>
       </header>
 
+      <section class="appearance-panel" aria-labelledby="appearanceTitle">
+        <div class="appearance-copy">
+          <div class="section-heading compact-heading">
+            <h2 id="appearanceTitle">荧光笔颜色</h2>
+            <output id="highlightColorValue" for="highlightColorInput">#FFDD57</output>
+          </div>
+          <p>更改后会同步到所有网页</p>
+        </div>
+        <mark id="highlightSample" class="highlight-sample" aria-hidden="true">Aa</mark>
+        <input id="highlightColorInput" class="color-input" type="color" value="#ffdd57" aria-label="选择网页高亮颜色" title="选择网页高亮颜色">
+        <button id="resetColorButton" class="reset-color-button" type="button">默认</button>
+      </section>
+
       <section class="add-panel" aria-labelledby="addTitle">
         <div class="section-heading">
           <h2 id="addTitle">添加生词</h2>

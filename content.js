@@ -8,7 +8,9 @@
     isValidWord,
     normalizeKey,
     buildWordMatcher,
-    sanitizeEntries
+    sanitizeEntries,
+    sanitizeSettings,
+    getHighlightRgb
   } = globalThis.VocabGlowUtils;
 
   const HIGHLIGHT_SELECTOR = "mark.sl-word-highlight[data-vocab-word]";
@@ -54,7 +56,7 @@
       }
 
       entries = sanitizeEntries(response.entries);
-      settings = { ...DEFAULT_SETTINGS, ...(response.settings || {}) };
+      settings = sanitizeSettings(response.settings);
       matcher = buildWordMatcher(Object.keys(entries));
       refreshAllHighlights();
     } catch (error) {
@@ -399,6 +401,7 @@
 
     const previousKeys = Object.keys(entries).sort().join("|");
     const previousEnabled = settings.enabled;
+    const previousHighlightColor = settings.highlightColor;
 
     if (changes[STORAGE_KEYS.entries]) {
       entries = sanitizeEntries(changes[STORAGE_KEYS.entries].newValue);
@@ -406,14 +409,19 @@
     }
 
     if (changes[STORAGE_KEYS.settings]) {
-      settings = { ...DEFAULT_SETTINGS, ...(changes[STORAGE_KEYS.settings].newValue || {}) };
+      settings = sanitizeSettings(changes[STORAGE_KEYS.settings].newValue);
     }
 
     const nextKeys = Object.keys(entries).sort().join("|");
     if (previousKeys !== nextKeys || previousEnabled !== settings.enabled) {
       scheduleFullRefresh();
-    } else if (openCardKey) {
-      renderOpenCard();
+    } else {
+      if (previousHighlightColor !== settings.highlightColor) {
+        applyHighlightColorToAll();
+      }
+      if (openCardKey) {
+        renderOpenCard();
+      }
     }
   }
 
@@ -511,6 +519,7 @@
       mark.dataset.vocabWord = key;
       mark.textContent = matchedWord;
       mark.setAttribute("aria-label", `${matchedWord}，点击查看中文翻译`);
+      applyHighlightColor(mark);
       fragment.append(mark);
       cursor = wordStart + matchedWord.length;
 
@@ -546,6 +555,17 @@
       scheduleMutationPass();
     });
     observeDocument();
+  }
+
+  function applyHighlightColor(mark) {
+    const { red, green, blue } = getHighlightRgb(settings.highlightColor);
+    mark.style.setProperty("--sl-highlight-rgb", `${red} ${green} ${blue}`, "important");
+  }
+
+  function applyHighlightColorToAll() {
+    for (const mark of document.querySelectorAll(HIGHLIGHT_SELECTOR)) {
+      applyHighlightColor(mark);
+    }
   }
 
   function observeDocument() {
