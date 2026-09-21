@@ -1,5 +1,5 @@
 {
-  "name": "edge-vocab-highlighter",
+  "name": "shici-edge-vocab-highlighter",
   "version": "1.0.0",
   "description": "Microsoft Edge 生词保存、网页高亮与中文翻译扩展",
   "author": "segujushi-lang",
@@ -11,14 +11,25 @@
     "translation",
     "manifest-v3"
   ],
+  "files": [
+    "manifest.json",
+    "background.js",
+    "content.js",
+    "content.css",
+    "popup.html",
+    "popup.css",
+    "popup.js",
+    "shared.js",
+    "PRIVACY.md"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/segujushi-lang/edge-vocab-highlighter.git"
+    "url": "git+https://github.com/segujushi-lang/shici-edge-vocab-highlighter.git"
   },
   "bugs": {
-    "url": "https://github.com/segujushi-lang/edge-vocab-highlighter/issues"
+    "url": "https://github.com/segujushi-lang/shici-edge-vocab-highlighter/issues"
   },
-  "homepage": "https://github.com/segujushi-lang/edge-vocab-highlighter#readme",
+  "homepage": "https://github.com/segujushi-lang/shici-edge-vocab-highlighter#readme",
   "scripts": {
     "check": "node --check shared.js && node --check background.js && node --check content.js && node --check popup.js",
     "test": "node --test --test-isolation=none tests/shared.test.js tests/manifest.test.js",

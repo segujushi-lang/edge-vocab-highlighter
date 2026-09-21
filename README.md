@@ -1,4 +1,4 @@
-# 拾词 · 网页生词荧光笔
+# 拾词 Shici · 网页生词荧光笔
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-f2c94c.svg)](LICENSE)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285f4.svg)](manifest.json)
@@ -32,8 +32,8 @@
 ### 1. 获取源码
 
 ```bash
-git clone https://github.com/segujushi-lang/edge-vocab-highlighter.git
-cd edge-vocab-highlighter
+git clone https://github.com/segujushi-lang/shici-edge-vocab-highlighter.git
+cd shici-edge-vocab-highlighter
 ```
 
 也可以在 GitHub 仓库页面选择 **Code → Download ZIP**，解压后继续下一步。
