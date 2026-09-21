@@ -43,7 +43,11 @@
       <section class="add-panel" aria-labelledby="addTitle">
         <div class="section-heading">
           <h2 id="addTitle">添加生词</h2>
-          <span>中文可选填</span>
+          <div class="section-tools">
+            <span>中文可选填</span>
+            <button id="importFileButton" class="import-file-button" type="button">导入 TXT / MD</button>
+            <input id="importFileInput" class="sr-only" type="file" accept=".txt,.md,text/plain,text/markdown">
+          </div>
         </div>
         <form id="addForm" autocomplete="off">
           <div class="input-row">
@@ -124,6 +128,33 @@
         </dl>
       </div>
       <p class="shortcut-note">浏览器若占用了组合键，可能显示“未设置”；可在 Edge 的扩展快捷键页面重新指定。</p>
+    </dialog>
+
+    <dialog id="importDialog" class="shortcut-dialog import-dialog" aria-labelledby="importTitle">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">LOCAL IMPORT</p>
+          <h2 id="importTitle">确认批量导入</h2>
+        </div>
+        <button id="importCloseButton" class="dialog-close" type="button" aria-label="关闭导入预览">×</button>
+      </div>
+      <p id="importFileName" class="import-file-name"></p>
+      <div class="import-summary" role="status" aria-live="polite">
+        <div><strong id="importReadyCount">0</strong><span>可导入</span></div>
+        <div><strong id="importExistingCount">0</strong><span>已存在</span></div>
+        <div><strong id="importIssueCount">0</strong><span>跳过/无效</span></div>
+      </div>
+      <p id="importDetail" class="import-detail"></p>
+      <div class="import-preview-heading">
+        <h3>导入预览</h3>
+        <span>最多显示 10 条</span>
+      </div>
+      <ul id="importPreviewList" class="import-preview-list"></ul>
+      <p class="import-privacy">文件只在本机读取。未附中文释义的单词不会自动外发，可导入后主动重试翻译。</p>
+      <div class="dialog-actions">
+        <button id="importCancelButton" class="dialog-secondary-button" type="button">取消</button>
+        <button id="importConfirmButton" class="dialog-primary-button" type="button">确认导入</button>
+      </div>
     </dialog>
 
     <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>

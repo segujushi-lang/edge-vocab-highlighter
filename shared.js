@@ -8,6 +8,8 @@
   });
 
   const DEFAULT_HIGHLIGHT_COLOR = "#ffdd57";
+  const MAX_IMPORT_WORDS = 500;
+  const MAX_IMPORT_FILE_BYTES = 1024 * 1024;
 
   const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
@@ -142,6 +144,149 @@
     };
   }
 
+  function parseWordImportText(value, limit = MAX_IMPORT_WORDS) {
+    const text = typeof value === "string" ? value.replace(/^\uFEFF/, "") : "";
+    const maximum = Number.isInteger(limit) && limit > 0 ? limit : MAX_IMPORT_WORDS;
+    const itemsByKey = new Map();
+    const invalidLineNumbers = [];
+    let invalidCount = 0;
+    let duplicateCount = 0;
+    let ignoredCount = 0;
+    let overLimitCount = 0;
+    let insideCodeFence = false;
+
+    const lines = text.split(/\r\n|\n|\r/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index].trim();
+      if (/^(?:```|~~~)/.test(line)) {
+        insideCodeFence = !insideCodeFence;
+        ignoredCount += 1;
+        continue;
+      }
+      if (
+        !line
+        || insideCodeFence
+        || line.startsWith("#")
+        || /^<!--.*-->$/.test(line)
+        || /^(?:-{3,}|\*{3,}|_{3,})$/.test(line)
+      ) {
+        ignoredCount += 1;
+        continue;
+      }
+
+      const parsed = parseImportLine(line);
+      if (parsed.ignored) {
+        ignoredCount += 1;
+        continue;
+      }
+
+      const word = cleanWord(parsed.word);
+      const translation = parsed.translation.trim().slice(0, 240);
+      const key = normalizeKey(word);
+
+      if (!key) {
+        invalidCount += 1;
+        if (invalidLineNumbers.length < 8) {
+          invalidLineNumbers.push(index + 1);
+        }
+        continue;
+      }
+
+      const existing = itemsByKey.get(key);
+      if (existing) {
+        duplicateCount += 1;
+        if (!existing.translation && translation) {
+          existing.translation = translation;
+        }
+        continue;
+      }
+
+      if (itemsByKey.size >= maximum) {
+        overLimitCount += 1;
+        continue;
+      }
+
+      itemsByKey.set(key, { word, translation });
+    }
+
+    return {
+      items: Array.from(itemsByKey.values()),
+      invalidCount,
+      invalidLineNumbers,
+      duplicateCount,
+      ignoredCount,
+      overLimitCount
+    };
+  }
+
+  function parseImportLine(value) {
+    const tableCells = parseMarkdownTableCells(value);
+    if (tableCells) {
+      if (tableCells.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+        return { ignored: true, word: "", translation: "" };
+      }
+
+      const word = unwrapMarkdownToken(tableCells[0]);
+      if (/^(?:word|english|单词|英文)$/i.test(word)) {
+        return { ignored: true, word: "", translation: "" };
+      }
+      return {
+        ignored: false,
+        word,
+        translation: unwrapMarkdownToken(tableCells[1] || "")
+      };
+    }
+
+    const line = value
+      .replace(/^(?:[-*+]\s+(?:\[[ xX]\]\s*)?|\d+[.)]\s+)/, "")
+      .trim();
+    if (!line) {
+      return { ignored: true, word: "", translation: "" };
+    }
+
+    const normalizedLine = line.replace(
+      /^(\*\*|__|`|\*|_)([A-Za-z]+(?:['’\-][A-Za-z]+)*)\1/,
+      "$2"
+    );
+    const matched = normalizedLine.match(
+      /^([A-Za-z]+(?:['’\-][A-Za-z]+)*)(?:\t+|\s*[,，=:：]\s*|\s+(?:=>|->|[-–—])\s+)(.*)$/
+    );
+    if (matched) {
+      return {
+        ignored: false,
+        word: unwrapMarkdownToken(matched[1]),
+        translation: unwrapMarkdownToken(matched[2])
+      };
+    }
+
+    return { ignored: false, word: unwrapMarkdownToken(normalizedLine), translation: "" };
+  }
+
+  function parseMarkdownTableCells(value) {
+    if (!value.includes("|")) {
+      return null;
+    }
+
+    const cells = value
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.trim());
+    return cells.length >= 2 ? cells : null;
+  }
+
+  function unwrapMarkdownToken(value) {
+    let token = typeof value === "string" ? value.trim() : "";
+    const wrappers = [["**", "**"], ["__", "__"], ["`", "`"], ["*", "*"], ["_", "_"]];
+    for (const [start, end] of wrappers) {
+      if (token.startsWith(start) && token.endsWith(end) && token.length > start.length + end.length) {
+        token = token.slice(start.length, -end.length).trim();
+        break;
+      }
+    }
+    return token;
+  }
+
   function decodeHtmlEntities(value) {
     if (typeof value !== "string") {
       return "";
@@ -169,6 +314,8 @@
     STORAGE_KEYS,
     DEFAULT_HIGHLIGHT_COLOR,
     DEFAULT_SETTINGS,
+    MAX_IMPORT_WORDS,
+    MAX_IMPORT_FILE_BYTES,
     cleanWord,
     isValidWord,
     normalizeKey,
@@ -180,6 +327,7 @@
     sanitizeSettings,
     getHighlightRgb,
     summarizeHistory,
+    parseWordImportText,
     decodeHtmlEntities,
     hasChineseText
   });

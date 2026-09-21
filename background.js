@@ -10,6 +10,7 @@ const {
   normalizeHighlightColor,
   sanitizeSettings,
   summarizeHistory,
+  MAX_IMPORT_WORDS,
   decodeHtmlEntities,
   hasChineseText
 } = globalThis.VocabGlowUtils;
@@ -116,6 +117,8 @@ async function handleMessage(message, sender) {
           sourceUrl: message.sourceUrl || sender.tab?.url || ""
         })
       }));
+    case "IMPORT_WORDS":
+      return importWordsWithHistory(message.items);
     case "REMOVE_WORD":
       return runWithHistory(
         (before) => `删除 ${before.entries[normalizeKey(message.key)]?.word || cleanWord(message.key)}`,
@@ -214,6 +217,76 @@ async function saveWord({ word, translation = "", sourceUrl = "" }) {
   }
 
   return finishTranslation(key, requestId);
+}
+
+async function importWordsWithHistory(value) {
+  const items = sanitizeImportItems(value);
+  if (items.length === 0) {
+    throw new Error("文件中没有可导入的英文单词");
+  }
+
+  return runWithHistory(
+    (_before, _after, result) => `批量导入 ${result.importedCount} 个生词`,
+    () => insertImportedWords(items)
+  );
+}
+
+function sanitizeImportItems(value) {
+  if (!Array.isArray(value)) {
+    throw new Error("导入内容格式无效");
+  }
+  if (value.length > MAX_IMPORT_WORDS) {
+    throw new Error(`单次最多导入 ${MAX_IMPORT_WORDS} 个单词`);
+  }
+
+  const itemsByKey = new Map();
+  for (const item of value) {
+    const word = cleanWord(item?.word);
+    const key = normalizeKey(word);
+    if (!isValidWord(word) || !key || itemsByKey.has(key)) {
+      continue;
+    }
+    const translation = typeof item.translation === "string"
+      ? item.translation.trim().slice(0, 240)
+      : "";
+    itemsByKey.set(key, { key, word, translation });
+  }
+  return Array.from(itemsByKey.values());
+}
+
+async function insertImportedWords(items) {
+  const { entries } = await getState();
+  const now = new Date().toISOString();
+  let importedCount = 0;
+  let skippedExistingCount = 0;
+  let untranslatedCount = 0;
+
+  for (const item of items) {
+    if (entries[item.key]) {
+      skippedExistingCount += 1;
+      continue;
+    }
+
+    entries[item.key] = {
+      key: item.key,
+      word: item.word,
+      translation: item.translation,
+      translationStatus: item.translation ? "ready" : "error",
+      createdAt: now,
+      updatedAt: now,
+      sourceUrl: "",
+      translationRequestId: ""
+    };
+    importedCount += 1;
+    if (!item.translation) {
+      untranslatedCount += 1;
+    }
+  }
+
+  if (importedCount > 0) {
+    await setEntries(entries);
+  }
+  return { importedCount, skippedExistingCount, untranslatedCount };
 }
 
 async function finishTranslation(key, requestId) {

@@ -5,6 +5,8 @@
     STORAGE_KEYS,
     DEFAULT_HIGHLIGHT_COLOR,
     DEFAULT_SETTINGS,
+    MAX_IMPORT_WORDS,
+    MAX_IMPORT_FILE_BYTES,
     cleanWord,
     isValidWord,
     normalizeKey,
@@ -12,12 +14,14 @@
     normalizeHighlightColor,
     sanitizeSettings,
     getHighlightRgb,
-    summarizeHistory
+    summarizeHistory,
+    parseWordImportText
   } = globalThis.VocabGlowUtils;
 
   let entries = {};
   let settings = { ...DEFAULT_SETTINGS };
   let history = summarizeHistory(null);
+  let pendingImport = null;
   let noticeTimer = 0;
 
   const elements = {
@@ -30,6 +34,18 @@
     addButton: document.getElementById("addButton"),
     wordInput: document.getElementById("wordInput"),
     translationInput: document.getElementById("translationInput"),
+    importFileButton: document.getElementById("importFileButton"),
+    importFileInput: document.getElementById("importFileInput"),
+    importDialog: document.getElementById("importDialog"),
+    importCloseButton: document.getElementById("importCloseButton"),
+    importCancelButton: document.getElementById("importCancelButton"),
+    importConfirmButton: document.getElementById("importConfirmButton"),
+    importFileName: document.getElementById("importFileName"),
+    importReadyCount: document.getElementById("importReadyCount"),
+    importExistingCount: document.getElementById("importExistingCount"),
+    importIssueCount: document.getElementById("importIssueCount"),
+    importDetail: document.getElementById("importDetail"),
+    importPreviewList: document.getElementById("importPreviewList"),
     searchInput: document.getElementById("searchInput"),
     wordCount: document.getElementById("wordCount"),
     wordList: document.getElementById("wordList"),
@@ -50,6 +66,15 @@
   elements.highlightColorInput.addEventListener("input", handleColorPreview);
   elements.highlightColorInput.addEventListener("change", () => void handleColorChange());
   elements.resetColorButton.addEventListener("click", () => void handleColorReset());
+  elements.importFileButton.addEventListener("click", () => {
+    elements.importFileInput.value = "";
+    elements.importFileInput.click();
+  });
+  elements.importFileInput.addEventListener("change", (event) => void handleImportFile(event));
+  elements.importCloseButton.addEventListener("click", closeImportDialog);
+  elements.importCancelButton.addEventListener("click", closeImportDialog);
+  elements.importConfirmButton.addEventListener("click", () => void handleImportConfirm());
+  elements.importDialog.addEventListener("close", resetImportDialog);
   elements.searchInput.addEventListener("input", render);
   elements.wordList.addEventListener("click", (event) => void handleListClick(event));
   elements.undoButton.addEventListener("click", () => void handleHistoryAction("UNDO_LAST_ACTION"));
@@ -104,6 +129,147 @@
     } finally {
       elements.addButton.disabled = false;
     }
+  }
+
+  async function handleImportFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    if (!/\.(?:txt|md)$/i.test(file.name)) {
+      showNotice("请选择 .txt 或 .md 文件", "error");
+      return;
+    }
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      showNotice("文件不能超过 1 MiB", "error");
+      return;
+    }
+
+    elements.importFileButton.disabled = true;
+    try {
+      const parsed = parseWordImportText(await file.text());
+      if (parsed.items.length === 0) {
+        throw new Error("文件中没有可识别的英文单词");
+      }
+      const newItems = parsed.items.filter((item) => !entries[normalizeKey(item.word)]);
+      pendingImport = {
+        fileName: file.name,
+        items: parsed.items,
+        newItems,
+        existingCount: parsed.items.length - newItems.length,
+        ...parsed
+      };
+      renderImportPreview();
+      elements.importDialog.showModal();
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "读取文件失败", "error");
+    } finally {
+      elements.importFileButton.disabled = false;
+    }
+  }
+
+  function renderImportPreview() {
+    if (!pendingImport) {
+      return;
+    }
+
+    const issueCount = pendingImport.invalidCount
+      + pendingImport.duplicateCount
+      + pendingImport.overLimitCount;
+    const details = [];
+    if (pendingImport.duplicateCount) {
+      details.push(`文件内重复 ${pendingImport.duplicateCount} 条`);
+    }
+    if (pendingImport.invalidCount) {
+      const lineHint = pendingImport.invalidLineNumbers.length
+        ? `（第 ${pendingImport.invalidLineNumbers.join("、")} 行）`
+        : "";
+      details.push(`无效 ${pendingImport.invalidCount} 条${lineHint}`);
+    }
+    if (pendingImport.overLimitCount) {
+      details.push(`超过 ${MAX_IMPORT_WORDS} 条上限 ${pendingImport.overLimitCount} 条`);
+    }
+    if (pendingImport.ignoredCount) {
+      details.push(`忽略空行/标题等 ${pendingImport.ignoredCount} 行`);
+    }
+
+    elements.importFileName.textContent = pendingImport.fileName;
+    elements.importReadyCount.textContent = String(pendingImport.newItems.length);
+    elements.importExistingCount.textContent = String(pendingImport.existingCount);
+    elements.importIssueCount.textContent = String(issueCount);
+    elements.importDetail.textContent = details.join("；") || "所有内容均可识别。";
+    elements.importPreviewList.replaceChildren(
+      ...pendingImport.newItems.slice(0, 10).map(createImportPreviewItem)
+    );
+    if (pendingImport.newItems.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "import-preview-empty";
+      empty.textContent = "没有需要新增的单词";
+      elements.importPreviewList.append(empty);
+    }
+    elements.importConfirmButton.disabled = pendingImport.newItems.length === 0;
+    elements.importConfirmButton.textContent = pendingImport.newItems.length
+      ? `导入 ${pendingImport.newItems.length} 个`
+      : "无需导入";
+  }
+
+  function createImportPreviewItem(item) {
+    const row = document.createElement("li");
+    const word = document.createElement("span");
+    const translation = document.createElement("span");
+    word.className = "import-preview-word";
+    translation.className = "import-preview-translation";
+    word.textContent = item.word;
+    translation.textContent = item.translation || "待补充 / 可主动翻译";
+    row.append(word, translation);
+    return row;
+  }
+
+  async function handleImportConfirm() {
+    if (!pendingImport || pendingImport.newItems.length === 0) {
+      return;
+    }
+
+    const requestedCount = pendingImport.newItems.length;
+    setImportDialogBusy(true);
+    try {
+      const response = await sendMessage({ type: "IMPORT_WORDS", items: pendingImport.items });
+      if (!response.ok) {
+        throw new Error(response.error || "批量导入失败");
+      }
+      applyHistoryResponse(response);
+      elements.importDialog.close();
+      const untranslated = response.untranslatedCount
+        ? `，${response.untranslatedCount} 个待补充释义`
+        : "";
+      const skipped = response.skippedExistingCount
+        ? `，跳过 ${response.skippedExistingCount} 个已有词`
+        : "";
+      showNotice(`已导入 ${response.importedCount} 个生词${untranslated}${skipped} · 可撤回`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "批量导入失败", "error");
+      setImportDialogBusy(false, requestedCount);
+    }
+  }
+
+  function setImportDialogBusy(busy, count = pendingImport?.newItems.length || 0) {
+    elements.importCloseButton.disabled = busy;
+    elements.importCancelButton.disabled = busy;
+    elements.importConfirmButton.disabled = busy || count === 0;
+    elements.importConfirmButton.textContent = busy ? "正在导入…" : count ? `导入 ${count} 个` : "无需导入";
+  }
+
+  function closeImportDialog() {
+    if (!elements.importConfirmButton.disabled || pendingImport?.newItems.length === 0) {
+      elements.importDialog.close();
+    }
+  }
+
+  function resetImportDialog() {
+    pendingImport = null;
+    elements.importPreviewList.replaceChildren();
+    setImportDialogBusy(false, 0);
   }
 
   async function handleToggle() {
@@ -331,7 +497,7 @@
   }
 
   function handleKeyboardShortcut(event) {
-    if (event.defaultPrevented || elements.shortcutDialog.open) {
+    if (event.defaultPrevented || elements.shortcutDialog.open || elements.importDialog.open) {
       return;
     }
 

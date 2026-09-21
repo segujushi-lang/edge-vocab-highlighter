@@ -13,6 +13,7 @@ function clone(value) {
 function createBackgroundHarness() {
   const local = {};
   const session = {};
+  let fetchCalls = 0;
   let messageListener;
   let commandListener;
 
@@ -60,7 +61,10 @@ function createBackgroundHarness() {
     URL,
     chrome,
     console,
-    fetch,
+    fetch: async () => {
+      fetchCalls += 1;
+      throw new Error("Unexpected network request in background test");
+    },
     setTimeout,
     clearTimeout
   });
@@ -72,6 +76,7 @@ function createBackgroundHarness() {
   return {
     local,
     session,
+    get fetchCalls() { return fetchCalls; },
     async send(message) {
       return new Promise((resolveResponse) => {
         messageListener(message, {}, resolveResponse);
@@ -125,4 +130,41 @@ test("global toggle command uses the same reversible action history", async () =
 
   await harness.command("undo-last-action");
   assert.equal(harness.local.vocabSettings.enabled, true);
+});
+
+test("batch import skips existing words, stays local, and undoes as one action", async () => {
+  const harness = createBackgroundHarness();
+  await harness.send({
+    type: "ADD_WORD",
+    word: "Serendipity",
+    translation: "原有释义"
+  });
+
+  const imported = await harness.send({
+    type: "IMPORT_WORDS",
+    items: [
+      { word: "serendipity", translation: "不应覆盖" },
+      { word: "Curious", translation: "好奇的" },
+      { word: "Insight", translation: "" }
+    ]
+  });
+
+  assert.equal(imported.ok, true);
+  assert.equal(imported.importedCount, 2);
+  assert.equal(imported.skippedExistingCount, 1);
+  assert.equal(imported.untranslatedCount, 1);
+  assert.equal(imported.history.undoLabel, "批量导入 2 个生词");
+  assert.equal(harness.local.vocabEntries.serendipity.translation, "原有释义");
+  assert.equal(harness.local.vocabEntries.curious.translation, "好奇的");
+  assert.equal(harness.local.vocabEntries.insight.translationStatus, "error");
+  assert.equal(harness.fetchCalls, 0);
+
+  const undone = await harness.send({ type: "UNDO_LAST_ACTION" });
+  assert.equal(undone.changed, true);
+  assert.deepEqual(Object.keys(harness.local.vocabEntries), ["serendipity"]);
+
+  const redone = await harness.send({ type: "REDO_LAST_ACTION" });
+  assert.equal(redone.changed, true);
+  assert.deepEqual(Object.keys(harness.local.vocabEntries).sort(), ["curious", "insight", "serendipity"]);
+  assert.equal(harness.fetchCalls, 0);
 });

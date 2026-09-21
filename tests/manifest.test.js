@@ -68,3 +68,14 @@ test("popup exposes common undo, redo, search, and escape shortcuts", () => {
   assert.match(popupScript, /key === "\/"/);
   assert.match(popupScript, /event\.key === "Escape"/);
 });
+
+test("popup exposes a local TXT and Markdown import preview", () => {
+  const popupHtml = readFileSync(resolve(root, "popup.html"), "utf8");
+  const popupScript = readFileSync(resolve(root, "popup.js"), "utf8");
+  assert.match(popupHtml, /id="importFileInput"[^>]+accept="\.txt,\.md,text\/plain,text\/markdown"/);
+  assert.match(popupHtml, /id="importDialog"/);
+  assert.match(popupHtml, /id="importPreviewList"/);
+  assert.match(popupScript, /parseWordImportText/);
+  assert.match(popupScript, /type: "IMPORT_WORDS"/);
+  assert.match(popupHtml, /文件只在本机读取/);
+});

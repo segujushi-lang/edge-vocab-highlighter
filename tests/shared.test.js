@@ -93,6 +93,41 @@ test("summarizes undo and redo history without exposing snapshots", () => {
   assert.equal(utils.summarizeHistory(status).redoLabel, "删除 Curious");
 });
 
+test("parses TXT and Markdown word lists with translations and duplicates", () => {
+  const parsed = utils.parseWordImportText(`\uFEFF# Vocabulary
+Serendipity
+- curious - 好奇的
+1. **Insight**：洞见
+| word | translation |
+| --- | --- |
+| \`epiphany\` | 顿悟 |
+state-of-the-art\t最先进的
+serendipity: 意外发现
+two words together
+\`\`\`
+ignored
+\`\`\``);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(parsed.items)), [
+    { word: "Serendipity", translation: "意外发现" },
+    { word: "curious", translation: "好奇的" },
+    { word: "Insight", translation: "洞见" },
+    { word: "epiphany", translation: "顿悟" },
+    { word: "state-of-the-art", translation: "最先进的" }
+  ]);
+  assert.equal(parsed.duplicateCount, 1);
+  assert.equal(parsed.invalidCount, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(parsed.invalidLineNumbers)), [10]);
+  assert.ok(parsed.ignoredCount >= 5);
+});
+
+test("limits import size while keeping the first unique words", () => {
+  const parsed = utils.parseWordImportText("alpha\nbeta\ngamma\nALPHA", 2);
+  assert.deepEqual(parsed.items.map((item) => item.word), ["alpha", "beta"]);
+  assert.equal(parsed.overLimitCount, 1);
+  assert.equal(parsed.duplicateCount, 1);
+});
+
 test("decodes translation entities and recognizes Chinese text", () => {
   assert.equal(utils.decodeHtmlEntities("洞见 &amp; 灵感 &#x4E50;"), "洞见 & 灵感 乐");
   assert.equal(utils.hasChineseText("意外发现"), true);
