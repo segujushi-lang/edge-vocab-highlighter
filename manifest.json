@@ -4,6 +4,8 @@
   "short_name": "拾词",
   "version": "1.0.0",
   "description": "保存陌生英文单词，在网页中自动高亮，点击即可查看中文翻译。",
+  "author": "segujushi-lang",
+  "homepage_url": "https://github.com/segujushi-lang/edge-vocab-highlighter",
   "permissions": [
     "storage",
     "contextMenus"

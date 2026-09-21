@@ -1,8 +1,24 @@
 {
   "name": "edge-vocab-highlighter",
   "version": "1.0.0",
-  "private": true,
   "description": "Microsoft Edge 生词保存、网页高亮与中文翻译扩展",
+  "author": "segujushi-lang",
+  "license": "MIT",
+  "keywords": [
+    "edge-extension",
+    "browser-extension",
+    "vocabulary",
+    "translation",
+    "manifest-v3"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/segujushi-lang/edge-vocab-highlighter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/segujushi-lang/edge-vocab-highlighter/issues"
+  },
+  "homepage": "https://github.com/segujushi-lang/edge-vocab-highlighter#readme",
   "scripts": {
     "check": "node --check shared.js && node --check background.js && node --check content.js && node --check popup.js",
     "test": "node --test --test-isolation=none tests/shared.test.js tests/manifest.test.js",
