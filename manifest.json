@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "拾词 · 网页生词荧光笔",
   "short_name": "拾词",
-  "version": "1.3.0",
-  "description": "保存或批量导入陌生英文单词，在网页中自动高亮，按住 Alt 或 Option 点击即可查看中文翻译。",
+  "version": "1.4.0",
+  "description": "分类保存或批量导入陌生英文单词，按分类颜色高亮网页，按住 Alt 或 Option 点击查看中文翻译。",
   "author": "segujushi-lang",
   "homepage_url": "https://github.com/segujushi-lang/shici-edge-vocab-highlighter",
   "permissions": [

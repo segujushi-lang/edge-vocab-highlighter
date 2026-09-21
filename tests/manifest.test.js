@@ -79,3 +79,24 @@ test("popup exposes a local TXT and Markdown import preview", () => {
   assert.match(popupScript, /type: "IMPORT_WORDS"/);
   assert.match(popupHtml, /文件只在本机读取/);
 });
+
+test("categories expose management, filtering, assignment, and per-word colors", () => {
+  const popupHtml = readFileSync(resolve(root, "popup.html"), "utf8");
+  const popupScript = readFileSync(resolve(root, "popup.js"), "utf8");
+  const contentScript = readFileSync(resolve(root, "content.js"), "utf8");
+  for (const id of [
+    "categoryManagerSelect",
+    "categoryNameInput",
+    "newCategoryButton",
+    "deleteCategoryButton",
+    "addCategorySelect",
+    "importCategorySelect",
+    "categoryFilterSelect"
+  ]) {
+    assert.match(popupHtml, new RegExp(`id="${id}"`));
+  }
+  assert.match(popupScript, /type: "UPDATE_CATEGORY"/);
+  assert.match(popupScript, /type: "MOVE_WORD"/);
+  assert.match(contentScript, /getCategoryColor\(settings, entry\?\.categoryId\)/);
+  assert.doesNotMatch(contentScript, /getHighlightRgb\(settings\.highlightColor\)/);
+});

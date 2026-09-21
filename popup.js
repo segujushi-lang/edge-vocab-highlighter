@@ -4,7 +4,9 @@
   const {
     STORAGE_KEYS,
     DEFAULT_HIGHLIGHT_COLOR,
+    DEFAULT_CATEGORY_ID,
     DEFAULT_SETTINGS,
+    MAX_CATEGORIES,
     MAX_IMPORT_WORDS,
     MAX_IMPORT_FILE_BYTES,
     cleanWord,
@@ -13,6 +15,8 @@
     sanitizeEntries,
     normalizeHighlightColor,
     sanitizeSettings,
+    getCategory,
+    getCategoryColor,
     getHighlightRgb,
     summarizeHistory,
     parseWordImportText
@@ -20,6 +24,7 @@
 
   let entries = {};
   let settings = { ...DEFAULT_SETTINGS };
+  let managedCategoryId = DEFAULT_CATEGORY_ID;
   let history = summarizeHistory(null);
   let pendingImport = null;
   let noticeTimer = 0;
@@ -30,10 +35,16 @@
     highlightColorValue: document.getElementById("highlightColorValue"),
     highlightPreview: document.getElementById("highlightPreview"),
     resetColorButton: document.getElementById("resetColorButton"),
+    categoryManagerSelect: document.getElementById("categoryManagerSelect"),
+    categoryNameInput: document.getElementById("categoryNameInput"),
+    saveCategoryNameButton: document.getElementById("saveCategoryNameButton"),
+    newCategoryButton: document.getElementById("newCategoryButton"),
+    deleteCategoryButton: document.getElementById("deleteCategoryButton"),
     addForm: document.getElementById("addForm"),
     addButton: document.getElementById("addButton"),
     wordInput: document.getElementById("wordInput"),
     translationInput: document.getElementById("translationInput"),
+    addCategorySelect: document.getElementById("addCategorySelect"),
     importFileButton: document.getElementById("importFileButton"),
     importFileInput: document.getElementById("importFileInput"),
     importDialog: document.getElementById("importDialog"),
@@ -46,7 +57,9 @@
     importIssueCount: document.getElementById("importIssueCount"),
     importDetail: document.getElementById("importDetail"),
     importPreviewList: document.getElementById("importPreviewList"),
+    importCategorySelect: document.getElementById("importCategorySelect"),
     searchInput: document.getElementById("searchInput"),
+    categoryFilterSelect: document.getElementById("categoryFilterSelect"),
     wordCount: document.getElementById("wordCount"),
     wordList: document.getElementById("wordList"),
     emptyState: document.getElementById("emptyState"),
@@ -66,6 +79,16 @@
   elements.highlightColorInput.addEventListener("input", handleColorPreview);
   elements.highlightColorInput.addEventListener("change", () => void handleColorChange());
   elements.resetColorButton.addEventListener("click", () => void handleColorReset());
+  elements.categoryManagerSelect.addEventListener("change", handleManagedCategoryChange);
+  elements.categoryNameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void handleCategoryRename();
+    }
+  });
+  elements.saveCategoryNameButton.addEventListener("click", () => void handleCategoryRename());
+  elements.newCategoryButton.addEventListener("click", () => void handleCategoryCreate());
+  elements.deleteCategoryButton.addEventListener("click", () => void handleCategoryDelete());
   elements.importFileButton.addEventListener("click", () => {
     elements.importFileInput.value = "";
     elements.importFileInput.click();
@@ -76,7 +99,9 @@
   elements.importConfirmButton.addEventListener("click", () => void handleImportConfirm());
   elements.importDialog.addEventListener("close", resetImportDialog);
   elements.searchInput.addEventListener("input", render);
+  elements.categoryFilterSelect.addEventListener("change", render);
   elements.wordList.addEventListener("click", (event) => void handleListClick(event));
+  elements.wordList.addEventListener("change", (event) => void handleWordCategoryChange(event));
   elements.undoButton.addEventListener("click", () => void handleHistoryAction("UNDO_LAST_ACTION"));
   elements.redoButton.addEventListener("click", () => void handleHistoryAction("REDO_LAST_ACTION"));
   elements.shortcutHelpButton.addEventListener("click", showShortcutDialog);
@@ -94,8 +119,8 @@
       if (!response.ok) {
         throw new Error(response.error || "读取词库失败");
       }
-      entries = sanitizeEntries(response.entries);
       settings = sanitizeSettings(response.settings);
+      entries = sanitizeEntries(response.entries, settings.categories);
       history = summarizeHistory(response.history);
       render();
     } catch (error) {
@@ -107,6 +132,7 @@
     event.preventDefault();
     const word = cleanWord(elements.wordInput.value);
     const translation = elements.translationInput.value.trim();
+    const categoryId = elements.addCategorySelect.value || DEFAULT_CATEGORY_ID;
     if (!isValidWord(word)) {
       showNotice("请输入一个完整的英文单词", "error");
       elements.wordInput.focus();
@@ -115,12 +141,13 @@
 
     elements.addButton.disabled = true;
     try {
-      const response = await sendMessage({ type: "ADD_WORD", word, translation });
+      const response = await sendMessage({ type: "ADD_WORD", word, translation, categoryId });
       if (!response.ok) {
         throw new Error(response.error || "添加失败");
       }
       applyHistoryResponse(response);
-      elements.addForm.reset();
+      elements.wordInput.value = "";
+      elements.translationInput.value = "";
       elements.wordInput.focus();
       const detail = response.entry?.translation ? `已保存：${response.entry.translation}` : "已保存，可稍后补充翻译";
       showNotice(`${word} ${detail} · 可撤回`);
@@ -234,7 +261,11 @@
     const requestedCount = pendingImport.newItems.length;
     setImportDialogBusy(true);
     try {
-      const response = await sendMessage({ type: "IMPORT_WORDS", items: pendingImport.items });
+      const response = await sendMessage({
+        type: "IMPORT_WORDS",
+        items: pendingImport.items,
+        categoryId: elements.importCategorySelect.value || DEFAULT_CATEGORY_ID
+      });
       if (!response.ok) {
         throw new Error(response.error || "批量导入失败");
       }
@@ -297,34 +328,170 @@
   }
 
   async function handleColorChange() {
-    await saveHighlightColor(elements.highlightColorInput.value, "高亮颜色已更新");
+    await saveCategoryColor(elements.highlightColorInput.value, "分类颜色已更新");
   }
 
   async function handleColorReset() {
-    await saveHighlightColor(DEFAULT_HIGHLIGHT_COLOR, "已恢复默认高亮颜色");
+    await saveCategoryColor(DEFAULT_HIGHLIGHT_COLOR, "已恢复默认分类颜色");
   }
 
-  async function saveHighlightColor(highlightColor, successMessage) {
-    const previousColor = settings.highlightColor;
+  async function saveCategoryColor(color, successMessage) {
+    const category = getManagedCategory();
+    if (!category) {
+      return;
+    }
     elements.highlightColorInput.disabled = true;
     elements.resetColorButton.disabled = true;
     try {
-      const response = await sendMessage({ type: "SET_HIGHLIGHT_COLOR", highlightColor });
+      const response = await sendMessage({
+        type: "UPDATE_CATEGORY",
+        categoryId: category.id,
+        color
+      });
       if (!response.ok) {
         throw new Error(response.error || "颜色设置失败");
       }
       settings = sanitizeSettings(response.settings);
       applyHistoryResponse(response);
+      renderCategoryControls();
       renderColorSetting();
       showNotice(successMessage);
     } catch (error) {
-      settings = sanitizeSettings({ ...settings, highlightColor: previousColor });
       renderColorSetting();
       showNotice(error instanceof Error ? error.message : "颜色设置失败", "error");
     } finally {
       elements.highlightColorInput.disabled = false;
-      elements.resetColorButton.disabled = settings.highlightColor === DEFAULT_HIGHLIGHT_COLOR;
+      elements.resetColorButton.disabled = getManagedCategory()?.color === DEFAULT_HIGHLIGHT_COLOR;
     }
+  }
+
+  function handleManagedCategoryChange() {
+    managedCategoryId = elements.categoryManagerSelect.value || DEFAULT_CATEGORY_ID;
+    renderCategoryEditor();
+    renderColorSetting();
+  }
+
+  async function handleCategoryCreate() {
+    if (Object.keys(settings.categories).length >= MAX_CATEGORIES) {
+      showNotice(`最多创建 ${MAX_CATEGORIES} 个分类`, "error");
+      return;
+    }
+    const name = window.prompt("输入新分类名称：");
+    if (name === null) {
+      return;
+    }
+    elements.newCategoryButton.disabled = true;
+    try {
+      const response = await sendMessage({
+        type: "CREATE_CATEGORY",
+        name,
+        color: getSuggestedCategoryColor()
+      });
+      if (!response.ok) {
+        throw new Error(response.error || "新建分类失败");
+      }
+      settings = sanitizeSettings(response.settings);
+      managedCategoryId = response.category.id;
+      applyHistoryResponse(response);
+      render();
+      showNotice(`已新建分类：${response.category.name} · 可撤回`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "新建分类失败", "error");
+    } finally {
+      elements.newCategoryButton.disabled = Object.keys(settings.categories).length >= MAX_CATEGORIES;
+    }
+  }
+
+  async function handleCategoryRename() {
+    const category = getManagedCategory();
+    if (!category) {
+      return;
+    }
+    const name = elements.categoryNameInput.value.trim();
+    if (name === category.name) {
+      showNotice("分类名称没有变化");
+      return;
+    }
+    elements.saveCategoryNameButton.disabled = true;
+    try {
+      const response = await sendMessage({
+        type: "UPDATE_CATEGORY",
+        categoryId: category.id,
+        name
+      });
+      if (!response.ok) {
+        throw new Error(response.error || "分类改名失败");
+      }
+      settings = sanitizeSettings(response.settings);
+      applyHistoryResponse(response);
+      render();
+      showNotice(`分类已改名为：${response.category.name} · 可撤回`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "分类改名失败", "error");
+    } finally {
+      elements.saveCategoryNameButton.disabled = false;
+    }
+  }
+
+  async function handleCategoryDelete() {
+    const category = getManagedCategory();
+    if (!category || category.id === DEFAULT_CATEGORY_ID) {
+      return;
+    }
+    const count = Object.values(entries).filter((entry) => entry.categoryId === category.id).length;
+    if (!window.confirm(`删除分类“${category.name}”吗？其中 ${count} 个生词会移到默认分类。`)) {
+      return;
+    }
+    elements.deleteCategoryButton.disabled = true;
+    try {
+      const response = await sendMessage({ type: "DELETE_CATEGORY", categoryId: category.id });
+      if (!response.ok) {
+        throw new Error(response.error || "删除分类失败");
+      }
+      settings = sanitizeSettings(response.settings);
+      managedCategoryId = DEFAULT_CATEGORY_ID;
+      applyHistoryResponse(response);
+      render();
+      showNotice(`分类已删除，${response.movedCount} 个生词移到默认分类 · 可撤回`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "删除分类失败", "error");
+    } finally {
+      elements.deleteCategoryButton.disabled = managedCategoryId === DEFAULT_CATEGORY_ID;
+    }
+  }
+
+  async function handleWordCategoryChange(event) {
+    const select = event.target.closest("select.word-category-select");
+    if (!select) {
+      return;
+    }
+    const item = select.closest(".word-item");
+    const key = item?.dataset.key || "";
+    const entry = entries[key];
+    if (!entry) {
+      return;
+    }
+    const previousCategoryId = entry.categoryId;
+    select.disabled = true;
+    try {
+      const response = await sendMessage({ type: "MOVE_WORD", key, categoryId: select.value });
+      if (!response.ok) {
+        throw new Error(response.error || "移动分类失败");
+      }
+      entries[key] = response.entry;
+      applyHistoryResponse(response);
+      render();
+      showNotice(`${entry.word} 已移到“${response.category.name}” · 可撤回`);
+    } catch (error) {
+      select.value = previousCategoryId;
+      select.disabled = false;
+      showNotice(error instanceof Error ? error.message : "移动分类失败", "error");
+    }
+  }
+
+  function getSuggestedCategoryColor() {
+    const palette = ["#7dd3fc", "#c4b5fd", "#86efac", "#fda4af", "#fdba74", "#67e8f9", "#f0abfc"];
+    return palette[(Object.keys(settings.categories).length - 1) % palette.length];
   }
 
   async function handleListClick(event) {
@@ -415,21 +582,32 @@
     if (areaName !== "local") {
       return;
     }
-    if (changes[STORAGE_KEYS.entries]) {
-      entries = sanitizeEntries(changes[STORAGE_KEYS.entries].newValue);
-    }
     if (changes[STORAGE_KEYS.settings]) {
       settings = sanitizeSettings(changes[STORAGE_KEYS.settings].newValue);
+    }
+    if (changes[STORAGE_KEYS.entries]) {
+      entries = sanitizeEntries(changes[STORAGE_KEYS.entries].newValue, settings.categories);
+    } else if (changes[STORAGE_KEYS.settings]) {
+      entries = sanitizeEntries(entries, settings.categories);
     }
     render();
   }
 
   function render() {
+    renderCategoryControls();
     const allEntries = Object.values(entries).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
     const query = elements.searchInput.value.trim().toLocaleLowerCase("zh-CN");
-    const visibleEntries = query
-      ? allEntries.filter((entry) => `${entry.word} ${entry.translation}`.toLocaleLowerCase("zh-CN").includes(query))
-      : allEntries;
+    const categoryFilter = elements.categoryFilterSelect.value;
+    const visibleEntries = allEntries.filter((entry) => {
+      if (categoryFilter && entry.categoryId !== categoryFilter) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const categoryName = getCategory(settings, entry.categoryId).name;
+      return `${entry.word} ${entry.translation} ${categoryName}`.toLocaleLowerCase("zh-CN").includes(query);
+    });
 
     elements.wordCount.textContent = String(allEntries.length);
     elements.wordList.replaceChildren(...visibleEntries.map(createWordItem));
@@ -442,13 +620,61 @@
     renderHistoryActions();
   }
 
+  function renderCategoryControls() {
+    const categoryIds = Object.keys(settings.categories);
+    if (!settings.categories[managedCategoryId]) {
+      managedCategoryId = DEFAULT_CATEGORY_ID;
+    }
+    replaceCategoryOptions(elements.categoryManagerSelect, managedCategoryId);
+    managedCategoryId = elements.categoryManagerSelect.value || DEFAULT_CATEGORY_ID;
+    replaceCategoryOptions(elements.addCategorySelect, elements.addCategorySelect.value || DEFAULT_CATEGORY_ID);
+    replaceCategoryOptions(elements.importCategorySelect, elements.importCategorySelect.value || elements.addCategorySelect.value || DEFAULT_CATEGORY_ID);
+    replaceCategoryOptions(elements.categoryFilterSelect, elements.categoryFilterSelect.value, true);
+    elements.newCategoryButton.disabled = categoryIds.length >= MAX_CATEGORIES;
+    renderCategoryEditor();
+  }
+
+  function replaceCategoryOptions(select, preferredValue, includeAll = false) {
+    const options = [];
+    if (includeAll) {
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = "全部分类";
+      options.push(all);
+    }
+    for (const category of Object.values(settings.categories)) {
+      const option = document.createElement("option");
+      option.value = category.id;
+      option.textContent = category.name;
+      options.push(option);
+    }
+    select.replaceChildren(...options);
+    const fallback = includeAll ? "" : DEFAULT_CATEGORY_ID;
+    select.value = (settings.categories[preferredValue] || (includeAll && preferredValue === ""))
+      ? preferredValue
+      : fallback;
+  }
+
+  function renderCategoryEditor() {
+    const category = getManagedCategory();
+    if (!category) {
+      return;
+    }
+    elements.categoryNameInput.value = category.name;
+    elements.deleteCategoryButton.disabled = category.id === DEFAULT_CATEGORY_ID;
+  }
+
+  function getManagedCategory() {
+    return settings.categories[managedCategoryId] || settings.categories[DEFAULT_CATEGORY_ID];
+  }
+
   function renderStatus() {
     elements.enabledToggle.checked = Boolean(settings.enabled);
     elements.highlightStatus.textContent = settings.enabled ? "网页高亮已开启" : "网页高亮已暂停";
   }
 
   function renderColorSetting() {
-    const highlightColor = normalizeHighlightColor(settings.highlightColor);
+    const highlightColor = normalizeHighlightColor(getManagedCategory()?.color || DEFAULT_HIGHLIGHT_COLOR);
     elements.highlightColorInput.value = highlightColor;
     elements.resetColorButton.disabled = highlightColor === DEFAULT_HIGHLIGHT_COLOR;
     renderColorPreview(highlightColor);
@@ -590,7 +816,14 @@
           </button>
         </div>
       </div>
-      <p class="word-meta"></p>
+      <div class="word-meta-row">
+        <label class="category-select-wrap">
+          <span class="category-dot" aria-hidden="true"></span>
+          <span class="sr-only">所属分类</span>
+          <select class="word-category-select" aria-label="移动到分类"></select>
+        </label>
+        <p class="word-meta"></p>
+      </div>
       <div class="edit-panel hidden">
         <input class="edit-input" type="text" maxlength="240" aria-label="中文翻译">
         <button class="mini-button" data-action="save" type="button">保存</button>
@@ -611,6 +844,10 @@
       translationElement.classList.add("error");
       retryButton.classList.remove("hidden");
     }
+    const categorySelect = item.querySelector(".word-category-select");
+    replaceCategoryOptions(categorySelect, entry.categoryId);
+    const { red, green, blue } = getHighlightRgb(getCategoryColor(settings, entry.categoryId));
+    item.querySelector(".category-dot").style.setProperty("--category-rgb", `${red} ${green} ${blue}`);
     item.querySelector(".word-meta").textContent = `更新于 ${formatDate(entry.updatedAt)}`;
     item.querySelector(".edit-input").value = entry.translation;
     return item;

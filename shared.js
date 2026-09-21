@@ -8,17 +8,31 @@
   });
 
   const DEFAULT_HIGHLIGHT_COLOR = "#ffdd57";
+  const DEFAULT_CATEGORY_ID = "default";
+  const DEFAULT_CATEGORY_NAME = "默认分类";
+  const MAX_CATEGORIES = 20;
+  const MAX_CATEGORY_NAME_LENGTH = 24;
   const MAX_IMPORT_WORDS = 500;
   const MAX_IMPORT_FILE_BYTES = 1024 * 1024;
 
+  const DEFAULT_CATEGORIES = Object.freeze({
+    [DEFAULT_CATEGORY_ID]: Object.freeze({
+      id: DEFAULT_CATEGORY_ID,
+      name: DEFAULT_CATEGORY_NAME,
+      color: DEFAULT_HIGHLIGHT_COLOR
+    })
+  });
+
   const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
-    highlightColor: DEFAULT_HIGHLIGHT_COLOR
+    highlightColor: DEFAULT_HIGHLIGHT_COLOR,
+    categories: DEFAULT_CATEGORIES
   });
 
   const WORD_PATTERN = /^[A-Za-z]+(?:['-][A-Za-z]+)*$/;
   const HAN_PATTERN = /[\u3400-\u9fff\uf900-\ufaff]/;
   const HEX_COLOR_PATTERN = /^#[\da-f]{6}$/i;
+  const CATEGORY_ID_PATTERN = /^[a-z][a-z0-9-]{0,47}$/;
 
   function cleanWord(value) {
     if (typeof value !== "string") {
@@ -58,7 +72,7 @@
     return new RegExp(`(^|[^A-Za-z])(${alternatives})(?=$|[^A-Za-z])`, "gi");
   }
 
-  function sanitizeEntries(value) {
+  function sanitizeEntries(value, categories) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return {};
     }
@@ -88,7 +102,8 @@
         sourceUrl: typeof entry.sourceUrl === "string" ? entry.sourceUrl : "",
         translationRequestId: typeof entry.translationRequestId === "string"
           ? entry.translationRequestId
-          : ""
+          : "",
+        categoryId: resolveCategoryId(entry.categoryId, categories)
       };
     }
 
@@ -105,11 +120,85 @@
       : DEFAULT_HIGHLIGHT_COLOR;
   }
 
+  function normalizeCategoryId(value) {
+    if (typeof value !== "string") {
+      return "";
+    }
+    const id = value.trim().toLocaleLowerCase("en-US");
+    return CATEGORY_ID_PATTERN.test(id) ? id : "";
+  }
+
+  function cleanCategoryName(value) {
+    if (typeof value !== "string") {
+      return "";
+    }
+    return value.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, MAX_CATEGORY_NAME_LENGTH);
+  }
+
+  function sanitizeCategories(value, legacyColor = DEFAULT_HIGHLIGHT_COLOR) {
+    const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const categories = {};
+    const names = new Set();
+    const storedDefault = stored[DEFAULT_CATEGORY_ID];
+    const defaultName = cleanCategoryName(storedDefault?.name) || DEFAULT_CATEGORY_NAME;
+    const defaultColor = normalizeHighlightColor(storedDefault?.color || legacyColor);
+    categories[DEFAULT_CATEGORY_ID] = {
+      id: DEFAULT_CATEGORY_ID,
+      name: defaultName,
+      color: defaultColor
+    };
+    names.add(defaultName.toLocaleLowerCase("zh-CN"));
+
+    for (const category of Object.values(stored)) {
+      if (Object.keys(categories).length >= MAX_CATEGORIES) {
+        break;
+      }
+      if (!category || typeof category !== "object") {
+        continue;
+      }
+      const id = normalizeCategoryId(category.id);
+      const name = cleanCategoryName(category.name);
+      const nameKey = name.toLocaleLowerCase("zh-CN");
+      if (!id || id === DEFAULT_CATEGORY_ID || !name || names.has(nameKey) || categories[id]) {
+        continue;
+      }
+      categories[id] = {
+        id,
+        name,
+        color: normalizeHighlightColor(category.color)
+      };
+      names.add(nameKey);
+    }
+    return categories;
+  }
+
+  function resolveCategoryId(value, categories) {
+    const id = normalizeCategoryId(value) || DEFAULT_CATEGORY_ID;
+    if (!categories || typeof categories !== "object" || Array.isArray(categories)) {
+      return id;
+    }
+    return categories[id] ? id : DEFAULT_CATEGORY_ID;
+  }
+
+  function getCategory(settings, categoryId) {
+    const sanitizedSettings = settings?.categories?.[DEFAULT_CATEGORY_ID]
+      ? settings
+      : sanitizeSettings(settings);
+    return sanitizedSettings.categories[resolveCategoryId(categoryId, sanitizedSettings.categories)]
+      || sanitizedSettings.categories[DEFAULT_CATEGORY_ID];
+  }
+
+  function getCategoryColor(settings, categoryId) {
+    return getCategory(settings, categoryId).color;
+  }
+
   function sanitizeSettings(value) {
     const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const categories = sanitizeCategories(stored.categories, stored.highlightColor);
     return {
       enabled: typeof stored.enabled === "boolean" ? stored.enabled : DEFAULT_SETTINGS.enabled,
-      highlightColor: normalizeHighlightColor(stored.highlightColor)
+      highlightColor: categories[DEFAULT_CATEGORY_ID].color,
+      categories
     };
   }
 
@@ -313,7 +402,11 @@
   global.VocabGlowUtils = Object.freeze({
     STORAGE_KEYS,
     DEFAULT_HIGHLIGHT_COLOR,
+    DEFAULT_CATEGORY_ID,
+    DEFAULT_CATEGORY_NAME,
     DEFAULT_SETTINGS,
+    MAX_CATEGORIES,
+    MAX_CATEGORY_NAME_LENGTH,
     MAX_IMPORT_WORDS,
     MAX_IMPORT_FILE_BYTES,
     cleanWord,
@@ -324,6 +417,12 @@
     sanitizeEntries,
     isValidHighlightColor,
     normalizeHighlightColor,
+    normalizeCategoryId,
+    cleanCategoryName,
+    sanitizeCategories,
+    resolveCategoryId,
+    getCategory,
+    getCategoryColor,
     sanitizeSettings,
     getHighlightRgb,
     summarizeHistory,

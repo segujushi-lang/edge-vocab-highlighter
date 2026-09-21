@@ -8,8 +8,13 @@ const {
   sanitizeEntries,
   isValidHighlightColor,
   normalizeHighlightColor,
+  normalizeCategoryId,
+  cleanCategoryName,
+  resolveCategoryId,
   sanitizeSettings,
   summarizeHistory,
+  DEFAULT_CATEGORY_ID,
+  MAX_CATEGORIES,
   MAX_IMPORT_WORDS,
   decodeHtmlEntities,
   hasChineseText
@@ -67,19 +72,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function initializeStorage() {
   const stored = await chrome.storage.local.get([STORAGE_KEYS.entries, STORAGE_KEYS.settings]);
   const updates = {};
+  const settings = sanitizeSettings(stored[STORAGE_KEYS.settings]);
+  const entries = sanitizeEntries(stored[STORAGE_KEYS.entries], settings.categories);
 
-  if (!stored[STORAGE_KEYS.entries] || typeof stored[STORAGE_KEYS.entries] !== "object") {
-    updates[STORAGE_KEYS.entries] = {};
+  if (JSON.stringify(stored[STORAGE_KEYS.settings]) !== JSON.stringify(settings)) {
+    updates[STORAGE_KEYS.settings] = settings;
   }
-
-  const storedSettings = stored[STORAGE_KEYS.settings];
-  if (
-    !storedSettings
-    || typeof storedSettings !== "object"
-    || typeof storedSettings.enabled !== "boolean"
-    || !isValidHighlightColor(storedSettings.highlightColor)
-  ) {
-    updates[STORAGE_KEYS.settings] = sanitizeSettings(storedSettings);
+  if (JSON.stringify(stored[STORAGE_KEYS.entries]) !== JSON.stringify(entries)) {
+    updates[STORAGE_KEYS.entries] = entries;
   }
 
   if (Object.keys(updates).length > 0) {
@@ -114,11 +114,12 @@ async function handleMessage(message, sender) {
         entry: await saveWord({
           word: message.word,
           translation: message.translation,
+          categoryId: message.categoryId,
           sourceUrl: message.sourceUrl || sender.tab?.url || ""
         })
       }));
     case "IMPORT_WORDS":
-      return importWordsWithHistory(message.items);
+      return importWordsWithHistory(message.items, message.categoryId);
     case "REMOVE_WORD":
       return runWithHistory(
         (before) => `删除 ${before.entries[normalizeKey(message.key)]?.word || cleanWord(message.key)}`,
@@ -138,6 +139,31 @@ async function handleMessage(message, sender) {
       return runWithHistory(message.enabled ? "开启网页高亮" : "暂停网页高亮", () => setEnabled(message.enabled));
     case "SET_HIGHLIGHT_COLOR":
       return runWithHistory("修改高亮颜色", () => setHighlightColor(message.highlightColor));
+    case "CREATE_CATEGORY":
+      return runWithHistory(
+        (_before, _after, result) => `新建分类 ${result.category.name}`,
+        () => createCategory(message.name, message.color)
+      );
+    case "UPDATE_CATEGORY":
+      return runWithHistory(
+        (before, _after, result) => `更新分类 ${before.settings.categories[normalizeCategoryId(message.categoryId)]?.name || result.category.name}`,
+        () => updateCategory(message.categoryId, { name: message.name, color: message.color })
+      );
+    case "DELETE_CATEGORY":
+      return runWithHistory(
+        (before) => `删除分类 ${before.settings.categories[normalizeCategoryId(message.categoryId)]?.name || ""}`,
+        () => deleteCategory(message.categoryId)
+      );
+    case "MOVE_WORD":
+      return runWithHistory(
+        (before, after) => {
+          const key = normalizeKey(message.key);
+          const word = before.entries[key]?.word || cleanWord(message.key);
+          const categoryId = after.entries[key]?.categoryId || DEFAULT_CATEGORY_ID;
+          return `将 ${word} 移到“${after.settings.categories[categoryId]?.name || "默认分类"}”`;
+        },
+        () => moveWord(message.key, message.categoryId)
+      );
     case "CLEAR_WORDS":
       return runWithHistory("清空词库", clearWords);
     case "UNDO_LAST_ACTION":
@@ -156,7 +182,8 @@ async function getClientState() {
 
 async function getState() {
   const stored = await chrome.storage.local.get([STORAGE_KEYS.entries, STORAGE_KEYS.settings]);
-  const entries = sanitizeEntries(stored[STORAGE_KEYS.entries]);
+  const settings = sanitizeSettings(stored[STORAGE_KEYS.settings]);
+  const entries = sanitizeEntries(stored[STORAGE_KEYS.entries], settings.categories);
   const staleBefore = Date.now() - 30000;
   let recoveredStaleRequest = false;
 
@@ -175,7 +202,7 @@ async function getState() {
 
   return {
     entries,
-    settings: sanitizeSettings(stored[STORAGE_KEYS.settings])
+    settings
   };
 }
 
@@ -183,7 +210,7 @@ async function setEntries(entries) {
   await chrome.storage.local.set({ [STORAGE_KEYS.entries]: entries });
 }
 
-async function saveWord({ word, translation = "", sourceUrl = "" }) {
+async function saveWord({ word, translation = "", sourceUrl = "", categoryId }) {
   const displayWord = cleanWord(word);
   const key = normalizeKey(displayWord);
 
@@ -192,9 +219,12 @@ async function saveWord({ word, translation = "", sourceUrl = "" }) {
   }
 
   const manualTranslation = typeof translation === "string" ? translation.trim().slice(0, 240) : "";
-  const { entries } = await getState();
+  const { entries, settings } = await getState();
   const now = new Date().toISOString();
   const existing = entries[key];
+  const targetCategoryId = categoryId === undefined || categoryId === null || categoryId === ""
+    ? resolveCategoryId(existing?.categoryId, settings.categories)
+    : requireCategoryId(categoryId, settings.categories);
   const shouldTranslate = !manualTranslation && !existing?.translation;
   const requestId = shouldTranslate ? createRequestId() : "";
 
@@ -206,7 +236,8 @@ async function saveWord({ word, translation = "", sourceUrl = "" }) {
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     sourceUrl: sanitizeSourceUrl(sourceUrl || existing?.sourceUrl || ""),
-    translationRequestId: requestId
+    translationRequestId: requestId,
+    categoryId: targetCategoryId
   };
 
   entries[key] = entry;
@@ -219,7 +250,7 @@ async function saveWord({ word, translation = "", sourceUrl = "" }) {
   return finishTranslation(key, requestId);
 }
 
-async function importWordsWithHistory(value) {
+async function importWordsWithHistory(value, categoryId) {
   const items = sanitizeImportItems(value);
   if (items.length === 0) {
     throw new Error("文件中没有可导入的英文单词");
@@ -227,7 +258,7 @@ async function importWordsWithHistory(value) {
 
   return runWithHistory(
     (_before, _after, result) => `批量导入 ${result.importedCount} 个生词`,
-    () => insertImportedWords(items)
+    () => insertImportedWords(items, categoryId)
   );
 }
 
@@ -254,8 +285,11 @@ function sanitizeImportItems(value) {
   return Array.from(itemsByKey.values());
 }
 
-async function insertImportedWords(items) {
-  const { entries } = await getState();
+async function insertImportedWords(items, categoryId) {
+  const { entries, settings } = await getState();
+  const targetCategoryId = categoryId === undefined || categoryId === null || categoryId === ""
+    ? DEFAULT_CATEGORY_ID
+    : requireCategoryId(categoryId, settings.categories);
   const now = new Date().toISOString();
   let importedCount = 0;
   let skippedExistingCount = 0;
@@ -275,7 +309,8 @@ async function insertImportedWords(items) {
       createdAt: now,
       updatedAt: now,
       sourceUrl: "",
-      translationRequestId: ""
+      translationRequestId: "",
+      categoryId: targetCategoryId
     };
     importedCount += 1;
     if (!item.translation) {
@@ -422,6 +457,130 @@ async function retryTranslation(value) {
   return finishTranslation(key, requestId);
 }
 
+async function createCategory(value, color) {
+  const { settings } = await getState();
+  const categories = { ...settings.categories };
+  if (Object.keys(categories).length >= MAX_CATEGORIES) {
+    throw new Error(`最多创建 ${MAX_CATEGORIES} 个分类`);
+  }
+
+  const name = requireUniqueCategoryName(value, categories);
+  const id = createCategoryId(categories);
+  categories[id] = {
+    id,
+    name,
+    color: normalizeHighlightColor(color)
+  };
+  const nextSettings = sanitizeSettings({ ...settings, categories });
+  await chrome.storage.local.set({ [STORAGE_KEYS.settings]: nextSettings });
+  return { category: nextSettings.categories[id], settings: nextSettings };
+}
+
+async function updateCategory(value, updates) {
+  const { settings } = await getState();
+  const categoryId = requireCategoryId(value, settings.categories);
+  const categories = { ...settings.categories };
+  const current = categories[categoryId];
+  let changed = false;
+  const next = { ...current };
+
+  if (typeof updates?.name !== "undefined") {
+    next.name = requireUniqueCategoryName(updates.name, categories, categoryId);
+    changed = changed || next.name !== current.name;
+  }
+  if (typeof updates?.color !== "undefined") {
+    if (!isValidHighlightColor(updates.color)) {
+      throw new Error("无效的分类颜色");
+    }
+    next.color = normalizeHighlightColor(updates.color);
+    changed = changed || next.color !== current.color;
+  }
+  if (!changed) {
+    return { category: current, settings };
+  }
+
+  categories[categoryId] = next;
+  const nextSettings = sanitizeSettings({ ...settings, categories });
+  await chrome.storage.local.set({ [STORAGE_KEYS.settings]: nextSettings });
+  return { category: nextSettings.categories[categoryId], settings: nextSettings };
+}
+
+async function deleteCategory(value) {
+  const { entries, settings } = await getState();
+  const categoryId = requireCategoryId(value, settings.categories);
+  if (categoryId === DEFAULT_CATEGORY_ID) {
+    throw new Error("默认分类不能删除");
+  }
+
+  const categories = { ...settings.categories };
+  const categoryName = categories[categoryId].name;
+  delete categories[categoryId];
+  const now = new Date().toISOString();
+  let movedCount = 0;
+  for (const entry of Object.values(entries)) {
+    if (entry.categoryId === categoryId) {
+      entry.categoryId = DEFAULT_CATEGORY_ID;
+      entry.updatedAt = now;
+      movedCount += 1;
+    }
+  }
+  const nextSettings = sanitizeSettings({ ...settings, categories });
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.entries]: entries,
+    [STORAGE_KEYS.settings]: nextSettings
+  });
+  return { categoryId, categoryName, movedCount, settings: nextSettings };
+}
+
+async function moveWord(value, categoryValue) {
+  const key = normalizeKey(value);
+  const { entries, settings } = await getState();
+  if (!key || !entries[key]) {
+    throw new Error("这个单词已不在词库中");
+  }
+  const categoryId = requireCategoryId(categoryValue, settings.categories);
+  if (entries[key].categoryId !== categoryId) {
+    entries[key] = {
+      ...entries[key],
+      categoryId,
+      updatedAt: new Date().toISOString()
+    };
+    await setEntries(entries);
+  }
+  return { entry: entries[key], category: settings.categories[categoryId] };
+}
+
+function requireCategoryId(value, categories) {
+  const categoryId = normalizeCategoryId(value);
+  if (!categoryId || !categories[categoryId]) {
+    throw new Error("所选分类不存在");
+  }
+  return categoryId;
+}
+
+function requireUniqueCategoryName(value, categories, currentId = "") {
+  const name = cleanCategoryName(value);
+  if (!name) {
+    throw new Error("分类名称不能为空");
+  }
+  const nameKey = name.toLocaleLowerCase("zh-CN");
+  const duplicate = Object.values(categories).some((category) => (
+    category.id !== currentId && category.name.toLocaleLowerCase("zh-CN") === nameKey
+  ));
+  if (duplicate) {
+    throw new Error("分类名称不能重复");
+  }
+  return name;
+}
+
+function createCategoryId(categories) {
+  let id = "";
+  do {
+    id = `cat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  } while (categories[id]);
+  return id;
+}
+
 async function setEnabled(enabled) {
   const { settings } = await getState();
   const nextSettings = sanitizeSettings({ ...settings, enabled: Boolean(enabled) });
@@ -430,17 +589,7 @@ async function setEnabled(enabled) {
 }
 
 async function setHighlightColor(highlightColor) {
-  if (!isValidHighlightColor(highlightColor)) {
-    throw new Error("无效的高亮颜色");
-  }
-
-  const { settings } = await getState();
-  const nextSettings = sanitizeSettings({
-    ...settings,
-    highlightColor: normalizeHighlightColor(highlightColor)
-  });
-  await chrome.storage.local.set({ [STORAGE_KEYS.settings]: nextSettings });
-  return { settings: nextSettings };
+  return updateCategory(DEFAULT_CATEGORY_ID, { color: highlightColor });
 }
 
 async function clearWords() {
@@ -522,9 +671,10 @@ async function captureSnapshot() {
 }
 
 async function restoreSnapshot(snapshot) {
+  const settings = sanitizeSettings(snapshot.settings);
   await chrome.storage.local.set({
-    [STORAGE_KEYS.entries]: sanitizeEntries(snapshot.entries),
-    [STORAGE_KEYS.settings]: sanitizeSettings(snapshot.settings)
+    [STORAGE_KEYS.entries]: sanitizeEntries(snapshot.entries, settings.categories),
+    [STORAGE_KEYS.settings]: settings
   });
 }
 
@@ -546,9 +696,10 @@ function sanitizeCheckpoints(value) {
     if (!checkpoint || typeof checkpoint !== "object") {
       return [];
     }
+    const settings = sanitizeSettings(checkpoint.settings);
     return [{
-      entries: sanitizeEntries(checkpoint.entries),
-      settings: sanitizeSettings(checkpoint.settings),
+      entries: sanitizeEntries(checkpoint.entries, settings.categories),
+      settings,
       description: typeof checkpoint.description === "string"
         ? checkpoint.description.slice(0, 120)
         : "上一次操作"

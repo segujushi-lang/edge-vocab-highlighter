@@ -25,19 +25,38 @@
       </header>
 
       <section class="appearance-panel" aria-labelledby="appearanceTitle">
-        <div class="appearance-copy">
-          <div class="section-heading compact-heading">
-            <h2 id="appearanceTitle">荧光笔颜色</h2>
-            <output id="highlightColorValue" for="highlightColorInput">#FFDD57</output>
+        <div class="category-heading">
+          <div>
+            <h2 id="appearanceTitle">分类与颜色</h2>
+            <p>每个分类使用自己的荧光笔颜色</p>
           </div>
-          <p>更改后会同步到所有网页</p>
+          <div class="category-heading-actions">
+            <button id="newCategoryButton" class="text-action-button" type="button">新建</button>
+            <button id="deleteCategoryButton" class="text-action-button danger" type="button">删除</button>
+          </div>
         </div>
-        <div id="highlightPreview" class="highlight-previews" role="img" aria-label="浅色页面深色文字与深色页面白色文字的高亮预览">
-          <span class="preview-surface preview-light" title="浅色页面预览"><mark class="highlight-sample" aria-hidden="true">Aa</mark></span>
-          <span class="preview-surface preview-dark" title="深色页面预览"><mark class="highlight-sample" aria-hidden="true">Aa</mark></span>
+        <div class="category-editor">
+          <label class="sr-only" for="categoryManagerSelect">正在管理的分类</label>
+          <select id="categoryManagerSelect" aria-label="正在管理的分类"></select>
+          <label class="sr-only" for="categoryNameInput">分类名称</label>
+          <input id="categoryNameInput" type="text" maxlength="24" placeholder="分类名称">
+          <button id="saveCategoryNameButton" class="compact-button" type="button">改名</button>
         </div>
-        <input id="highlightColorInput" class="color-input" type="color" value="#ffdd57" aria-label="选择网页高亮颜色" title="选择网页高亮颜色">
-        <button id="resetColorButton" class="reset-color-button" type="button">默认</button>
+        <div class="category-color-row">
+          <div class="appearance-copy">
+            <div class="section-heading compact-heading">
+              <h3>分类颜色</h3>
+              <output id="highlightColorValue" for="highlightColorInput">#FFDD57</output>
+            </div>
+            <p>修改后立即同步网页</p>
+          </div>
+          <div id="highlightPreview" class="highlight-previews" role="img" aria-label="浅色页面深色文字与深色页面白色文字的高亮预览">
+            <span class="preview-surface preview-light" title="浅色页面预览"><mark class="highlight-sample" aria-hidden="true">Aa</mark></span>
+            <span class="preview-surface preview-dark" title="深色页面预览"><mark class="highlight-sample" aria-hidden="true">Aa</mark></span>
+          </div>
+          <input id="highlightColorInput" class="color-input" type="color" value="#ffdd57" aria-label="选择当前分类的高亮颜色" title="选择当前分类的高亮颜色">
+          <button id="resetColorButton" class="reset-color-button" type="button">默认色</button>
+        </div>
       </section>
 
       <section class="add-panel" aria-labelledby="addTitle">
@@ -50,6 +69,10 @@
           </div>
         </div>
         <form id="addForm" autocomplete="off">
+          <label class="category-target-field">
+            <span>保存到</span>
+            <select id="addCategorySelect" aria-label="保存到分类"></select>
+          </label>
           <div class="input-row">
             <label>
               <span class="sr-only">英文单词</span>
@@ -76,6 +99,10 @@
             <input id="searchInput" type="search" placeholder="搜索">
           </label>
         </div>
+        <label class="library-filter">
+          <span>显示分类</span>
+          <select id="categoryFilterSelect" aria-label="按分类筛选词库"></select>
+        </label>
 
         <div id="wordList" class="word-list"></div>
         <div id="emptyState" class="empty-state">
@@ -139,6 +166,10 @@
         <button id="importCloseButton" class="dialog-close" type="button" aria-label="关闭导入预览">×</button>
       </div>
       <p id="importFileName" class="import-file-name"></p>
+      <label class="import-category-field">
+        <span>导入到</span>
+        <select id="importCategorySelect" aria-label="导入到分类"></select>
+      </label>
       <div class="import-summary" role="status" aria-live="polite">
         <div><strong id="importReadyCount">0</strong><span>可导入</span></div>
         <div><strong id="importExistingCount">0</strong><span>已存在</span></div>

@@ -168,3 +168,69 @@ test("batch import skips existing words, stays local, and undoes as one action",
   assert.deepEqual(Object.keys(harness.local.vocabEntries).sort(), ["curious", "insight", "serendipity"]);
   assert.equal(harness.fetchCalls, 0);
 });
+
+test("categories control word colors and deletion moves words without deleting them", async () => {
+  const harness = createBackgroundHarness();
+  const created = await harness.send({
+    type: "CREATE_CATEGORY",
+    name: "考试重点",
+    color: "#7dd3fc"
+  });
+  assert.equal(created.ok, true);
+  const categoryId = created.category.id;
+  assert.equal(harness.local.vocabSettings.categories[categoryId].color, "#7dd3fc");
+
+  await harness.send({
+    type: "ADD_WORD",
+    word: "Epiphany",
+    translation: "顿悟",
+    categoryId
+  });
+  assert.equal(harness.local.vocabEntries.epiphany.categoryId, categoryId);
+
+  const recolored = await harness.send({
+    type: "UPDATE_CATEGORY",
+    categoryId,
+    color: "#c4b5fd"
+  });
+  assert.equal(recolored.category.color, "#c4b5fd");
+
+  const deleted = await harness.send({ type: "DELETE_CATEGORY", categoryId });
+  assert.equal(deleted.movedCount, 1);
+  assert.equal(harness.local.vocabEntries.epiphany.categoryId, "default");
+  assert.equal(harness.local.vocabSettings.categories[categoryId], undefined);
+
+  await harness.send({ type: "UNDO_LAST_ACTION" });
+  assert.equal(harness.local.vocabEntries.epiphany.categoryId, categoryId);
+  assert.equal(harness.local.vocabSettings.categories[categoryId].color, "#c4b5fd");
+
+  await harness.send({ type: "REDO_LAST_ACTION" });
+  assert.equal(harness.local.vocabEntries.epiphany.categoryId, "default");
+  assert.equal(harness.local.vocabEntries.epiphany.word, "Epiphany");
+
+  const rejected = await harness.send({ type: "DELETE_CATEGORY", categoryId: "default" });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /默认分类不能删除/);
+});
+
+test("word moves and categorized imports are reversible", async () => {
+  const harness = createBackgroundHarness();
+  const created = await harness.send({ type: "CREATE_CATEGORY", name: "阅读", color: "#86efac" });
+  const categoryId = created.category.id;
+
+  const imported = await harness.send({
+    type: "IMPORT_WORDS",
+    categoryId,
+    items: [{ word: "Curious", translation: "好奇的" }]
+  });
+  assert.equal(imported.ok, true);
+  assert.equal(harness.local.vocabEntries.curious.categoryId, categoryId);
+
+  const moved = await harness.send({ type: "MOVE_WORD", key: "curious", categoryId: "default" });
+  assert.equal(moved.entry.categoryId, "default");
+  assert.match(moved.history.undoLabel, /移到“默认分类”/);
+
+  await harness.send({ type: "UNDO_LAST_ACTION" });
+  assert.equal(harness.local.vocabEntries.curious.categoryId, categoryId);
+  assert.equal(harness.fetchCalls, 0);
+});

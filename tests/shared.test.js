@@ -77,6 +77,40 @@ test("sanitizes highlight settings and converts the selected color to RGB", () =
   assert.equal(rgb.blue, 239);
 });
 
+test("migrates legacy words and global color into the default category", () => {
+  const settings = utils.sanitizeSettings({ enabled: false, highlightColor: "#12abef" });
+  assert.equal(settings.categories.default.name, "默认分类");
+  assert.equal(settings.categories.default.color, "#12abef");
+  assert.equal(settings.highlightColor, "#12abef");
+
+  const entries = utils.sanitizeEntries({
+    insight: { word: "Insight", translation: "洞见" }
+  }, settings.categories);
+  assert.equal(entries.insight.categoryId, utils.DEFAULT_CATEGORY_ID);
+  assert.equal(utils.getCategoryColor(settings, entries.insight.categoryId), "#12abef");
+});
+
+test("sanitizes custom categories and repairs missing category references", () => {
+  const settings = utils.sanitizeSettings({
+    enabled: true,
+    categories: {
+      default: { id: "default", name: "基础", color: "#ffdd57" },
+      study: { id: "study", name: "学习", color: "#7DD3FC" },
+      duplicate: { id: "duplicate", name: "学习", color: "#000000" },
+      invalid: { id: "not valid", name: "无效", color: "red" }
+    }
+  });
+  assert.deepEqual(Object.keys(settings.categories), ["default", "study"]);
+  assert.equal(settings.categories.study.color, "#7dd3fc");
+
+  const entries = utils.sanitizeEntries({
+    curious: { word: "Curious", categoryId: "study" },
+    epiphany: { word: "Epiphany", categoryId: "missing" }
+  }, settings.categories);
+  assert.equal(entries.curious.categoryId, "study");
+  assert.equal(entries.epiphany.categoryId, "default");
+});
+
 test("summarizes undo and redo history without exposing snapshots", () => {
   const status = utils.summarizeHistory({
     undo: [{ description: "添加 Insight", entries: { secret: true } }],

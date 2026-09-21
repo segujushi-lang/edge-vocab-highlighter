@@ -10,13 +10,28 @@
         createdAt: now,
         updatedAt: now,
         sourceUrl: "",
-        translationRequestId: ""
+        translationRequestId: "",
+        categoryId: "study"
       }
     },
-    settings: { enabled: true, highlightColor: "#ffdd57" },
+    settings: {
+      enabled: true,
+      highlightColor: "#ffdd57",
+      categories: {
+        default: { id: "default", name: "默认分类", color: "#ffdd57" },
+        study: { id: "study", name: "考试重点", color: "#7dd3fc" }
+      }
+    },
     history: { canUndo: true, canRedo: false, undoLabel: "添加 Serendipity", redoLabel: "" }
   };
   const storageListeners = [];
+  let categorySequence = 0;
+
+  function emitLocal(changes) {
+    for (const listener of storageListeners) {
+      listener(changes, "local");
+    }
+  }
 
   globalThis.__popupMessages = [];
   globalThis.chrome = {
@@ -45,6 +60,60 @@
           state.history = { canUndo: true, canRedo: false, undoLabel: "添加 Serendipity", redoLabel: "" };
           return { ok: true, changed: true, message: "已重做：添加 Serendipity", history: state.history };
         }
+        if (message.type === "CREATE_CATEGORY") {
+          categorySequence += 1;
+          const id = `cat-mock-${categorySequence}`;
+          const category = { id, name: String(message.name || "新分类").trim(), color: message.color || "#86efac" };
+          state.settings.categories[id] = category;
+          state.history = { canUndo: true, canRedo: false, undoLabel: `新建分类 ${category.name}`, redoLabel: "" };
+          emitLocal({ vocabSettings: { newValue: state.settings } });
+          return { ok: true, category, settings: state.settings, history: state.history };
+        }
+        if (message.type === "UPDATE_CATEGORY") {
+          const category = state.settings.categories[message.categoryId];
+          if (!category) {
+            return { ok: false, error: "所选分类不存在" };
+          }
+          if (message.name !== undefined) {
+            category.name = String(message.name).trim();
+          }
+          if (message.color !== undefined) {
+            category.color = message.color;
+            if (category.id === "default") {
+              state.settings.highlightColor = message.color;
+            }
+          }
+          state.history = { canUndo: true, canRedo: false, undoLabel: `更新分类 ${category.name}`, redoLabel: "" };
+          emitLocal({ vocabSettings: { newValue: state.settings } });
+          return { ok: true, category, settings: state.settings, history: state.history };
+        }
+        if (message.type === "DELETE_CATEGORY") {
+          const category = state.settings.categories[message.categoryId];
+          let movedCount = 0;
+          for (const entry of Object.values(state.entries)) {
+            if (entry.categoryId === message.categoryId) {
+              entry.categoryId = "default";
+              movedCount += 1;
+            }
+          }
+          delete state.settings.categories[message.categoryId];
+          emitLocal({
+            vocabEntries: { newValue: state.entries },
+            vocabSettings: { newValue: state.settings }
+          });
+          return { ok: true, categoryName: category?.name || "", movedCount, settings: state.settings, history: state.history };
+        }
+        if (message.type === "MOVE_WORD") {
+          const key = String(message.key || "").toLocaleLowerCase("en-US");
+          const entry = state.entries[key];
+          const category = state.settings.categories[message.categoryId];
+          if (!entry || !category) {
+            return { ok: false, error: "移动失败" };
+          }
+          entry.categoryId = category.id;
+          emitLocal({ vocabEntries: { newValue: state.entries } });
+          return { ok: true, entry, category, history: state.history };
+        }
         if (message.type === "IMPORT_WORDS") {
           let importedCount = 0;
           let skippedExistingCount = 0;
@@ -63,7 +132,8 @@
               createdAt: now,
               updatedAt: now,
               sourceUrl: "",
-              translationRequestId: ""
+              translationRequestId: "",
+              categoryId: message.categoryId || "default"
             };
             importedCount += 1;
             if (!item.translation) {
@@ -76,9 +146,7 @@
             undoLabel: `批量导入 ${importedCount} 个生词`,
             redoLabel: ""
           };
-          for (const listener of storageListeners) {
-            listener({ vocabEntries: { newValue: state.entries } }, "local");
-          }
+          emitLocal({ vocabEntries: { newValue: state.entries } });
           return {
             ok: true,
             importedCount,

@@ -10,6 +10,8 @@
     buildWordMatcher,
     sanitizeEntries,
     sanitizeSettings,
+    getCategory,
+    getCategoryColor,
     getHighlightRgb
   } = globalThis.VocabGlowUtils;
 
@@ -55,8 +57,8 @@
         throw new Error(response.error || "无法读取词库");
       }
 
-      entries = sanitizeEntries(response.entries);
       settings = sanitizeSettings(response.settings);
+      entries = sanitizeEntries(response.entries, settings.categories);
       matcher = buildWordMatcher(Object.keys(entries));
       refreshAllHighlights();
     } catch (error) {
@@ -99,6 +101,8 @@
         .card-head { align-items: flex-start; display: flex; gap: 12px; justify-content: space-between; }
         .word { color: #0f172a; font: 750 21px/1.15 Georgia,"Times New Roman",serif; margin: 0; overflow-wrap: anywhere; }
         .label { color: #94a3b8; font: 700 10px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; letter-spacing: .12em; margin: 0 0 5px; text-transform: uppercase; }
+        .category { align-items: center; color: #64748b; display: flex; font: 650 11px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; gap: 6px; margin: 8px 0 0; }
+        .category::before { background: rgb(var(--category-rgb, 255 221 87)); border: 1px solid rgba(15,23,42,.12); border-radius: 50%; content: ""; height: 9px; width: 9px; }
         .close { background: transparent; border: 0; border-radius: 8px; color: #94a3b8; cursor: pointer; font: 20px/1 sans-serif; margin: -5px -5px 0 0; padding: 5px 7px; }
         .close:hover { background: #f1f5f9; color: #334155; }
         .translation { color: #334155; font: 500 15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin: 13px 0 16px; min-height: 24px; overflow-wrap: anywhere; }
@@ -127,6 +131,7 @@
           <div><p class="label">Saved word</p><h2 class="word" id="cardWord"></h2></div>
           <button class="close" id="cardClose" type="button" aria-label="关闭">×</button>
         </div>
+        <p class="category" id="cardCategory"></p>
         <p class="translation" id="cardTranslation"></p>
         <div class="actions">
           <button class="action hidden" id="cardRetry" type="button">重试翻译</button>
@@ -142,6 +147,7 @@
       selectionButton: shadow.getElementById("selectionButton"),
       card: shadow.getElementById("wordCard"),
       cardWord: shadow.getElementById("cardWord"),
+      cardCategory: shadow.getElementById("cardCategory"),
       cardTranslation: shadow.getElementById("cardTranslation"),
       cardClose: shadow.getElementById("cardClose"),
       cardRetry: shadow.getElementById("cardRetry"),
@@ -305,7 +311,7 @@
     renderOpenCard();
     ui.card.classList.remove("hidden");
 
-    const estimatedHeight = entry.translationStatus === "error" ? 176 : 158;
+    const estimatedHeight = entry.translationStatus === "error" ? 196 : 178;
     let top = anchorRect.bottom + 9;
     if (top + estimatedHeight > window.innerHeight - 12) {
       top = Math.max(12, anchorRect.top - estimatedHeight - 9);
@@ -323,6 +329,10 @@
     }
 
     ui.cardWord.textContent = entry.word;
+    const category = getCategory(settings, entry.categoryId);
+    const categoryRgb = getHighlightRgb(category.color);
+    ui.cardCategory.textContent = category.name;
+    ui.cardCategory.style.setProperty("--category-rgb", `${categoryRgb.red} ${categoryRgb.green} ${categoryRgb.blue}`);
     ui.cardTranslation.className = "translation";
     ui.cardRetry.classList.add("hidden");
 
@@ -414,23 +424,28 @@
     }
 
     const previousKeys = Object.keys(entries).sort().join("|");
+    const previousAssignments = getEntryCategorySignature(entries);
     const previousEnabled = settings.enabled;
-    const previousHighlightColor = settings.highlightColor;
-
-    if (changes[STORAGE_KEYS.entries]) {
-      entries = sanitizeEntries(changes[STORAGE_KEYS.entries].newValue);
-      matcher = buildWordMatcher(Object.keys(entries));
-    }
+    const previousCategories = JSON.stringify(settings.categories);
 
     if (changes[STORAGE_KEYS.settings]) {
       settings = sanitizeSettings(changes[STORAGE_KEYS.settings].newValue);
+    }
+    if (changes[STORAGE_KEYS.entries]) {
+      entries = sanitizeEntries(changes[STORAGE_KEYS.entries].newValue, settings.categories);
+      matcher = buildWordMatcher(Object.keys(entries));
+    } else if (changes[STORAGE_KEYS.settings]) {
+      entries = sanitizeEntries(entries, settings.categories);
     }
 
     const nextKeys = Object.keys(entries).sort().join("|");
     if (previousKeys !== nextKeys || previousEnabled !== settings.enabled) {
       scheduleFullRefresh();
     } else {
-      if (previousHighlightColor !== settings.highlightColor) {
+      if (
+        previousAssignments !== getEntryCategorySignature(entries)
+        || previousCategories !== JSON.stringify(settings.categories)
+      ) {
         applyHighlightColorToAll();
       }
       if (openCardKey) {
@@ -532,8 +547,9 @@
       mark.className = "sl-word-highlight";
       mark.dataset.vocabWord = key;
       mark.textContent = matchedWord;
-      mark.setAttribute("aria-label", `${matchedWord}，按住 Alt 或 Option 点击查看中文翻译`);
-      mark.title = "按住 Alt（macOS 为 Option）点击查看中文翻译";
+      const category = getCategory(settings, entries[key]?.categoryId);
+      mark.setAttribute("aria-label", `${matchedWord}，${category.name}，按住 Alt 或 Option 点击查看中文翻译`);
+      mark.title = `${category.name} · 按住 Alt（macOS 为 Option）点击查看中文翻译`;
       applyHighlightColor(mark);
       fragment.append(mark);
       cursor = wordStart + matchedWord.length;
@@ -573,8 +589,21 @@
   }
 
   function applyHighlightColor(mark) {
-    const { red, green, blue } = getHighlightRgb(settings.highlightColor);
+    const entry = entries[normalizeKey(mark.dataset.vocabWord)];
+    const category = getCategory(settings, entry?.categoryId);
+    const color = getCategoryColor(settings, entry?.categoryId);
+    const { red, green, blue } = getHighlightRgb(color);
     mark.style.setProperty("--sl-highlight-rgb", `${red} ${green} ${blue}`, "important");
+    const word = mark.textContent || entry?.word || "生词";
+    mark.setAttribute("aria-label", `${word}，${category.name}，按住 Alt 或 Option 点击查看中文翻译`);
+    mark.title = `${category.name} · 按住 Alt（macOS 为 Option）点击查看中文翻译`;
+  }
+
+  function getEntryCategorySignature(value) {
+    return Object.values(value)
+      .map((entry) => `${entry.key}:${entry.categoryId}`)
+      .sort()
+      .join("|");
   }
 
   function applyHighlightColorToAll() {
