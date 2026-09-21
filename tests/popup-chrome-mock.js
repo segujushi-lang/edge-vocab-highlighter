@@ -6,6 +6,11 @@
         key: "serendipity",
         word: "Serendipity",
         translation: "意外发现",
+        translationResults: [
+          { source: "mymemory", text: "意外发现" },
+          { source: "mymemory", text: "机缘" },
+          { source: "wiktionary", text: "机缘巧合", partOfSpeech: "名词" }
+        ],
         translationStatus: "ready",
         createdAt: now,
         updatedAt: now,
@@ -20,7 +25,8 @@
       categories: {
         default: { id: "default", name: "默认分类", color: "#ffdd57" },
         study: { id: "study", name: "考试重点", color: "#7dd3fc" }
-      }
+      },
+      translationSources: { mymemory: true, wiktionary: true }
     },
     history: { canUndo: true, canRedo: false, undoLabel: "添加 Serendipity", redoLabel: "" }
   };
@@ -87,6 +93,12 @@
           emitLocal({ vocabSettings: { newValue: state.settings } });
           return { ok: true, category, settings: state.settings, history: state.history };
         }
+        if (message.type === "SET_TRANSLATION_SOURCE") {
+          state.settings.translationSources[message.source] = Boolean(message.enabled);
+          state.history = { canUndo: true, canRedo: false, undoLabel: "修改翻译来源", redoLabel: "" };
+          emitLocal({ vocabSettings: { newValue: state.settings } });
+          return { ok: true, settings: state.settings, history: state.history };
+        }
         if (message.type === "DELETE_CATEGORY") {
           const category = state.settings.categories[message.categoryId];
           let movedCount = 0;
@@ -128,6 +140,7 @@
               key,
               word: item.word,
               translation: item.translation || "",
+              translationResults: item.translation ? [{ source: "import", text: item.translation }] : [],
               translationStatus: item.translation ? "ready" : "error",
               createdAt: now,
               updatedAt: now,

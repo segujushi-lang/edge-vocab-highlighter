@@ -10,10 +10,11 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function createBackgroundHarness() {
+function createBackgroundHarness({ fetchImpl } = {}) {
   const local = {};
   const session = {};
   let fetchCalls = 0;
+  const fetchUrls = [];
   let messageListener;
   let commandListener;
 
@@ -60,9 +61,13 @@ function createBackgroundHarness() {
     AbortController,
     URL,
     chrome,
-    console,
-    fetch: async () => {
+    console: { warn() {} },
+    fetch: async (url, options) => {
       fetchCalls += 1;
+      fetchUrls.push(String(url));
+      if (fetchImpl) {
+        return fetchImpl(url, options);
+      }
       throw new Error("Unexpected network request in background test");
     },
     setTimeout,
@@ -77,6 +82,7 @@ function createBackgroundHarness() {
     local,
     session,
     get fetchCalls() { return fetchCalls; },
+    fetchUrls,
     async send(message) {
       return new Promise((resolveResponse) => {
         messageListener(message, {}, resolveResponse);
@@ -88,6 +94,97 @@ function createBackgroundHarness() {
     }
   };
 }
+
+function jsonResponse(value, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() { return clone(value); }
+  };
+}
+
+test("default MyMemory source stores multiple deduplicated translations", async () => {
+  const harness = createBackgroundHarness({
+    fetchImpl(url) {
+      assert.equal(new URL(url).hostname, "api.mymemory.translated.net");
+      return jsonResponse({
+        responseStatus: 200,
+        responseData: { translatedText: "意外发现" },
+        matches: [
+          { translation: "意外发现" },
+          { translation: "机缘" },
+          { translation: "serendipity" }
+        ]
+      });
+    }
+  });
+
+  const response = await harness.send({ type: "ADD_WORD", word: "Serendipity" });
+  assert.equal(response.ok, true);
+  assert.equal(harness.fetchCalls, 1);
+  assert.deepEqual(clone(response.entry.translationResults.map((result) => result.text)), ["意外发现", "机缘"]);
+  assert.deepEqual(clone(response.entry.translationResults.map((result) => result.source)), ["mymemory", "mymemory"]);
+  assert.equal(response.entry.translation, "意外发现");
+});
+
+test("opted-in Wiktionary survives another source failure and keeps manual text first", async () => {
+  const harness = createBackgroundHarness({
+    fetchImpl(url) {
+      const hostname = new URL(url).hostname;
+      if (hostname === "api.mymemory.translated.net") {
+        throw new Error("MyMemory unavailable");
+      }
+      assert.equal(hostname, "zh.wiktionary.org");
+      return jsonResponse({
+        query: {
+          pages: [{
+            title: "curious",
+            extract: "== 英语 ==\n=== 形容词 ===\ncurious (比較級 more curious)\n好奇的\n奇怪的"
+          }]
+        }
+      });
+    }
+  });
+
+  const sourceChange = await harness.send({
+    type: "SET_TRANSLATION_SOURCE",
+    source: "wiktionary",
+    enabled: true
+  });
+  assert.equal(sourceChange.settings.translationSources.wiktionary, true);
+  assert.equal(harness.fetchCalls, 0);
+
+  const added = await harness.send({ type: "ADD_WORD", word: "Curious" });
+  assert.equal(added.entry.translationStatus, "ready");
+  assert.equal(harness.fetchCalls, 2);
+  assert.deepEqual(clone(added.entry.translationResults.map((result) => result.text)), ["好奇的", "奇怪的"]);
+  assert.ok(added.entry.translationResults.every((result) => result.source === "wiktionary"));
+
+  await harness.send({ type: "UPDATE_TRANSLATION", key: "curious", translation: "好奇；稀奇" });
+  const retried = await harness.send({ type: "RETRY_TRANSLATION", key: "curious" });
+  assert.equal(retried.entry.translation, "好奇；稀奇");
+  assert.equal(retried.entry.translationResults[0].source, "manual");
+  assert.ok(retried.entry.translationResults.some((result) => result.source === "wiktionary"));
+});
+
+test("translation source opt-in is reversible and never performs a lookup by itself", async () => {
+  const harness = createBackgroundHarness();
+  await harness.send({ type: "SET_TRANSLATION_SOURCE", source: "wiktionary", enabled: true });
+  assert.equal(harness.local.vocabSettings.translationSources.wiktionary, true);
+  assert.equal(harness.fetchCalls, 0);
+  await harness.send({ type: "UNDO_LAST_ACTION" });
+  assert.equal(harness.local.vocabSettings.translationSources.wiktionary, false);
+  assert.equal(harness.fetchCalls, 0);
+});
+
+test("disabling every automatic source prevents all translation requests", async () => {
+  const harness = createBackgroundHarness();
+  await harness.send({ type: "SET_TRANSLATION_SOURCE", source: "mymemory", enabled: false });
+  const added = await harness.send({ type: "ADD_WORD", word: "Private" });
+  assert.equal(added.entry.translationStatus, "error");
+  assert.equal(added.entry.translationResults.length, 0);
+  assert.equal(harness.fetchCalls, 0);
+});
 
 test("background history restores entries and settings through undo and redo", async () => {
   const harness = createBackgroundHarness();

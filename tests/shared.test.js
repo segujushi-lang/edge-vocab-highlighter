@@ -60,6 +60,49 @@ test("sanitizes persisted entries and ignores invalid records", () => {
   assert.deepEqual(Object.keys(entries), ["insight"]);
   assert.equal(entries.insight.translation, "洞见");
   assert.equal(entries.insight.translationStatus, "ready");
+  assert.deepEqual(JSON.parse(JSON.stringify(entries.insight.translationResults)), [
+    { source: "saved", text: "洞见" }
+  ]);
+});
+
+test("sanitizes, deduplicates, and prioritizes translation results", () => {
+  const results = utils.sanitizeTranslationResults([
+    { source: "mymemory", text: " 洞察 " },
+    { source: "wiktionary", text: "洞察", partOfSpeech: "名詞" },
+    { source: "wiktionary", text: "眼光", partOfSpeech: " 名词 " },
+    { source: "manual", text: "洞见" },
+    { source: "unknown", text: "参悟" }
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(results)), [
+    { source: "manual", text: "洞见" },
+    { source: "saved", text: "参悟" },
+    { source: "mymemory", text: "洞察" },
+    { source: "wiktionary", text: "眼光", partOfSpeech: "名词" }
+  ]);
+  assert.equal(utils.getTranslationSourceLabel("wiktionary"), "维基词典");
+});
+
+test("extracts Chinese definitions by part of speech from Wiktionary text", () => {
+  const results = utils.extractWiktionaryTranslations(`
+== 英語 ==
+=== 發音 ===
+國際音標: /test/
+=== 形容词 ===
+curious (比較級 more curious)
+好奇的
+奇怪的
+==== 用法说明 ====
+这里不应被收录
+=== 名詞 ===
+罕见名词义
+近義詞：example
+== 法语 ==
+法语释义`, "curious");
+  assert.deepEqual(JSON.parse(JSON.stringify(results)), [
+    { source: "wiktionary", text: "好奇的", partOfSpeech: "形容词" },
+    { source: "wiktionary", text: "奇怪的", partOfSpeech: "形容词" },
+    { source: "wiktionary", text: "罕见名词义", partOfSpeech: "名词" }
+  ]);
 });
 
 test("sanitizes highlight settings and converts the selected color to RGB", () => {
@@ -75,6 +118,16 @@ test("sanitizes highlight settings and converts the selected color to RGB", () =
   assert.equal(rgb.red, 18);
   assert.equal(rgb.green, 171);
   assert.equal(rgb.blue, 239);
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.translationSources)), {
+    mymemory: true,
+    wiktionary: false
+  });
+
+  const optedIn = utils.sanitizeSettings({ translationSources: { mymemory: false, wiktionary: true } });
+  assert.deepEqual(JSON.parse(JSON.stringify(optedIn.translationSources)), {
+    mymemory: false,
+    wiktionary: true
+  });
 });
 
 test("migrates legacy words and global color into the default category", () => {

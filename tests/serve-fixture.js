@@ -17,19 +17,21 @@ const assets = new Map([
 ]);
 
 createServer((request, response) => {
-  if (request.url === "/" || request.url === "/fixture.html") {
-    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  const requestPath = new URL(request.url, "http://127.0.0.1").pathname;
+  const headers = { "Cache-Control": "no-store" };
+  if (requestPath === "/" || requestPath === "/fixture.html") {
+    response.writeHead(200, { ...headers, "Content-Type": "text/html; charset=utf-8" });
     response.end(fixture);
     return;
   }
-  if (request.url === "/popup-fixture.html") {
-    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  if (requestPath === "/popup-fixture.html") {
+    response.writeHead(200, { ...headers, "Content-Type": "text/html; charset=utf-8" });
     response.end(popupFixture);
     return;
   }
-  if (assets.has(request.url)) {
-    const [contentType, body] = assets.get(request.url);
-    response.writeHead(200, { "Content-Type": contentType });
+  if (assets.has(requestPath)) {
+    const [contentType, body] = assets.get(requestPath);
+    response.writeHead(200, { ...headers, "Content-Type": contentType });
     response.end(body);
     return;
   }

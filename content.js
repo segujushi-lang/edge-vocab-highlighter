@@ -12,7 +12,8 @@
     sanitizeSettings,
     getCategory,
     getCategoryColor,
-    getHighlightRgb
+    getHighlightRgb,
+    getTranslationSourceLabel
   } = globalThis.VocabGlowUtils;
 
   const HIGHLIGHT_SELECTOR = "mark.sl-word-highlight[data-vocab-word]";
@@ -95,8 +96,8 @@
         .card {
           background: rgba(255,255,255,.98); border: 1px solid rgba(15,23,42,.10); border-radius: 16px;
           box-shadow: 0 18px 50px rgba(15,23,42,.22); color: #172033; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-          left: 0; max-width: min(320px, calc(100vw - 24px)); min-width: 240px; padding: 17px;
-          pointer-events: auto; position: fixed; top: 0;
+          left: 0; max-height: calc(100vh - 24px); max-width: min(340px, calc(100vw - 24px)); min-width: 260px;
+          overflow-y: auto; padding: 17px; pointer-events: auto; position: fixed; top: 0;
         }
         .card-head { align-items: flex-start; display: flex; gap: 12px; justify-content: space-between; }
         .word { color: #0f172a; font: 750 21px/1.15 Georgia,"Times New Roman",serif; margin: 0; overflow-wrap: anywhere; }
@@ -105,9 +106,12 @@
         .category::before { background: rgb(var(--category-rgb, 255 221 87)); border: 1px solid rgba(15,23,42,.12); border-radius: 50%; content: ""; height: 9px; width: 9px; }
         .close { background: transparent; border: 0; border-radius: 8px; color: #94a3b8; cursor: pointer; font: 20px/1 sans-serif; margin: -5px -5px 0 0; padding: 5px 7px; }
         .close:hover { background: #f1f5f9; color: #334155; }
-        .translation { color: #334155; font: 500 15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin: 13px 0 16px; min-height: 24px; overflow-wrap: anywhere; }
-        .translation.loading { color: #64748b; }
-        .translation.error { color: #b45309; }
+        .translations { display: grid; gap: 7px; margin: 13px 0 16px; max-height: 230px; min-height: 24px; overflow-y: auto; }
+        .translation-result { align-items: flex-start; display: flex; gap: 7px; }
+        .translation-source { background: #f1f5f9; border-radius: 999px; color: #64748b; flex: none; font: 700 9px/1.25 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin-top: 3px; padding: 3px 6px; }
+        .translation-text { color: #334155; font: 500 14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; overflow-wrap: anywhere; }
+        .translation-state { color: #64748b; font: 500 12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin: 0; }
+        .translation-state.error { color: #b45309; }
         .actions { align-items: center; display: flex; gap: 8px; justify-content: flex-end; }
         .action { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9px; color: #475569; cursor: pointer; font: 650 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; padding: 8px 10px; }
         .action:hover { background: #f1f5f9; border-color: #cbd5e1; }
@@ -132,9 +136,9 @@
           <button class="close" id="cardClose" type="button" aria-label="关闭">×</button>
         </div>
         <p class="category" id="cardCategory"></p>
-        <p class="translation" id="cardTranslation"></p>
+        <div class="translations" id="cardTranslations"></div>
         <div class="actions">
-          <button class="action hidden" id="cardRetry" type="button">重试翻译</button>
+          <button class="action hidden" id="cardRetry" type="button">刷新翻译</button>
           <button class="action danger" id="cardRemove" type="button">移出词库</button>
         </div>
       </section>
@@ -148,7 +152,7 @@
       card: shadow.getElementById("wordCard"),
       cardWord: shadow.getElementById("cardWord"),
       cardCategory: shadow.getElementById("cardCategory"),
-      cardTranslation: shadow.getElementById("cardTranslation"),
+      cardTranslations: shadow.getElementById("cardTranslations"),
       cardClose: shadow.getElementById("cardClose"),
       cardRetry: shadow.getElementById("cardRetry"),
       cardRemove: shadow.getElementById("cardRemove"),
@@ -183,7 +187,7 @@
       if (message?.type === "WORD_SAVED" && message.entry) {
         const detail = message.entry.translation
           ? `${message.entry.word}：${message.entry.translation}`
-          : `${message.entry.word} 已保存，可稍后重试翻译`;
+          : `${message.entry.word} 已保存，可稍后刷新翻译`;
         showToast(detail);
       }
 
@@ -311,12 +315,17 @@
     renderOpenCard();
     ui.card.classList.remove("hidden");
 
-    const estimatedHeight = entry.translationStatus === "error" ? 196 : 178;
+    const cardRect = ui.card.getBoundingClientRect();
+    const estimatedHeight = Math.min(cardRect.height, window.innerHeight - 24);
     let top = anchorRect.bottom + 9;
     if (top + estimatedHeight > window.innerHeight - 12) {
       top = Math.max(12, anchorRect.top - estimatedHeight - 9);
     }
-    const left = clamp(anchorRect.left + anchorRect.width / 2 - 130, 12, window.innerWidth - 332);
+    const left = clamp(
+      anchorRect.left + anchorRect.width / 2 - cardRect.width / 2,
+      12,
+      Math.max(12, window.innerWidth - cardRect.width - 12)
+    );
     ui.card.style.left = `${left}px`;
     ui.card.style.top = `${top}px`;
   }
@@ -333,19 +342,39 @@
     const categoryRgb = getHighlightRgb(category.color);
     ui.cardCategory.textContent = category.name;
     ui.cardCategory.style.setProperty("--category-rgb", `${categoryRgb.red} ${categoryRgb.green} ${categoryRgb.blue}`);
-    ui.cardTranslation.className = "translation";
     ui.cardRetry.classList.add("hidden");
-
-    if (entry.translationStatus === "loading") {
-      ui.cardTranslation.textContent = "正在获取中文翻译…";
-      ui.cardTranslation.classList.add("loading");
-    } else if (entry.translation) {
-      ui.cardTranslation.textContent = entry.translation;
-    } else {
-      ui.cardTranslation.textContent = "暂时没有获取到翻译，可重试或在扩展词库中手动补充。";
-      ui.cardTranslation.classList.add("error");
+    renderTranslationResults(ui.cardTranslations, entry);
+    if (entry.translationStatus !== "loading") {
       ui.cardRetry.classList.remove("hidden");
     }
+  }
+
+  function renderTranslationResults(container, entry) {
+    const nodes = entry.translationResults.map((result) => {
+      const row = document.createElement("div");
+      row.className = "translation-result";
+      const source = document.createElement("span");
+      source.className = "translation-source";
+      source.textContent = `${getTranslationSourceLabel(result.source)}${result.partOfSpeech ? ` · ${result.partOfSpeech}` : ""}`;
+      const text = document.createElement("span");
+      text.className = "translation-text";
+      text.textContent = result.text;
+      row.append(source, text);
+      return row;
+    });
+
+    if (entry.translationStatus === "loading") {
+      const state = document.createElement("p");
+      state.className = "translation-state";
+      state.textContent = entry.translationResults.length > 0 ? "正在刷新其他来源…" : "正在获取中文翻译…";
+      nodes.push(state);
+    } else if (entry.translationResults.length === 0) {
+      const state = document.createElement("p");
+      state.className = "translation-state error";
+      state.textContent = "暂时没有获取到翻译，可刷新或在扩展词库中手工补充。";
+      nodes.push(state);
+    }
+    container.replaceChildren(...nodes);
   }
 
   async function removeOpenWord() {
@@ -373,8 +402,10 @@
       return;
     }
 
-    ui.cardTranslation.textContent = "正在重新翻译…";
-    ui.cardTranslation.className = "translation loading";
+    renderTranslationResults(ui.cardTranslations, {
+      ...entries[key],
+      translationStatus: "loading"
+    });
     ui.cardRetry.classList.add("hidden");
     try {
       const response = await sendMessage({ type: "RETRY_TRANSLATION", key });

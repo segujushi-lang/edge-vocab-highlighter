@@ -104,6 +104,19 @@ h1 { font: 750 25px/1.05 Georgia, "Times New Roman", serif; margin: 0; }
 .reset-color-button:hover { background: #e2dccd; color: #353b46; }
 .reset-color-button:disabled { cursor: default; opacity: .45; }
 
+.translation-source-panel { background: #f6f3ea; border-bottom: 1px solid var(--line); padding: 14px 22px 15px; }
+.source-heading { align-items: center; display: flex; justify-content: space-between; margin-bottom: 9px; }
+.source-heading h2 { font-size: 14px; margin: 0; }
+.source-heading p { color: var(--muted); font-size: 10px; margin: 3px 0 0; }
+.source-count { background: #e9e4d7; border-radius: 999px; color: #696252; font-size: 9px; font-weight: 700; padding: 4px 7px; }
+.source-option { align-items: center; background: rgba(255,255,255,.64); border: 1px solid #e2ddcf; border-radius: 10px; cursor: pointer; display: flex; gap: 10px; justify-content: space-between; margin-top: 6px; padding: 8px 10px; }
+.source-option:hover { border-color: #cec6b4; }
+.source-copy { display: grid; gap: 2px; min-width: 0; }
+.source-copy strong { color: #343d4c; font-size: 11px; }
+.source-copy small { color: var(--muted); font-size: 9px; line-height: 1.35; }
+.source-option input { accent-color: #252c38; height: 16px; width: 16px; }
+.source-privacy { color: #8a7046; font-size: 9px; line-height: 1.45; margin: 8px 1px 0; }
+
 select {
   background: rgba(255,255,255,.82); border: 1px solid #dcd8cb; border-radius: 9px; color: var(--ink);
   height: 34px; min-width: 0; outline: none; padding: 0 26px 0 9px;
@@ -159,9 +172,12 @@ input::placeholder { color: #abb1bb; }
 .word-top { align-items: flex-start; display: flex; gap: 9px; }
 .word-copy { min-width: 0; }
 .word-name { font: 700 16px/1.15 Georgia, "Times New Roman", serif; margin: 0; overflow-wrap: anywhere; }
-.word-translation { color: #596476; font-size: 12px; line-height: 1.45; margin: 5px 0 0; overflow-wrap: anywhere; }
-.word-translation.loading { color: #8a7d54; }
-.word-translation.error { color: #aa6421; }
+.word-translations { display: grid; gap: 5px; margin-top: 7px; }
+.translation-result { align-items: flex-start; display: flex; gap: 6px; }
+.translation-source { background: #eeeadd; border-radius: 999px; color: #776b4a; flex: none; font-size: 8px; font-weight: 750; line-height: 1.25; margin-top: 1px; padding: 3px 5px; }
+.translation-text { color: #596476; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.translation-state { color: #8a7d54; font-size: 10px; line-height: 1.4; margin: 0; }
+.translation-state.error { color: #aa6421; }
 .word-actions { display: flex; gap: 2px; margin-left: auto; }
 .icon-button {
   align-items: center; background: transparent; border: 0; border-radius: 7px; color: #9199a5; cursor: pointer;

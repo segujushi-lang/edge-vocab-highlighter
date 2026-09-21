@@ -59,6 +59,25 @@
         </div>
       </section>
 
+      <section class="translation-source-panel" aria-labelledby="translationSourceTitle">
+        <div class="source-heading">
+          <div>
+            <h2 id="translationSourceTitle">翻译来源</h2>
+            <p>一次保留多条结果；各来源独立容错</p>
+          </div>
+          <span id="translationSourceCount" class="source-count">1 个已启用</span>
+        </div>
+        <label class="source-option">
+          <span class="source-copy"><strong>MyMemory</strong><small>默认来源，可返回多个翻译候选</small></span>
+          <input id="myMemorySourceToggle" type="checkbox" checked>
+        </label>
+        <label class="source-option">
+          <span class="source-copy"><strong>中文维基词典</strong><small>可选来源，补充按词性的中文义项</small></span>
+          <input id="wiktionarySourceToggle" type="checkbox">
+        </label>
+        <p class="source-privacy">开启某来源后，自动翻译或主动刷新时会向该来源发送当前单个英文词；不会发送网页正文或来源地址。</p>
+      </section>
+
       <section class="add-panel" aria-labelledby="addTitle">
         <div class="section-heading">
           <h2 id="addTitle">添加生词</h2>
@@ -181,7 +200,7 @@
         <span>最多显示 10 条</span>
       </div>
       <ul id="importPreviewList" class="import-preview-list"></ul>
-      <p class="import-privacy">文件只在本机读取。未附中文释义的单词不会自动外发，可导入后主动重试翻译。</p>
+      <p class="import-privacy">文件只在本机读取。未附中文释义的单词不会自动外发，可导入后主动刷新翻译。</p>
       <div class="dialog-actions">
         <button id="importCancelButton" class="dialog-secondary-button" type="button">取消</button>
         <button id="importConfirmButton" class="dialog-primary-button" type="button">确认导入</button>

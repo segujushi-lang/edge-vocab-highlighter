@@ -11,6 +11,7 @@ test("manifest is a loadable MV3 extension with the required APIs", () => {
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.permissions.includes("contextMenus"));
   assert.ok(manifest.host_permissions.includes("https://api.mymemory.translated.net/*"));
+  assert.ok(manifest.host_permissions.includes("https://zh.wiktionary.org/*"));
   assert.equal(manifest.background.service_worker, "background.js");
 });
 
@@ -99,4 +100,17 @@ test("categories expose management, filtering, assignment, and per-word colors",
   assert.match(popupScript, /type: "MOVE_WORD"/);
   assert.match(contentScript, /getCategoryColor\(settings, entry\?\.categoryId\)/);
   assert.doesNotMatch(contentScript, /getHighlightRgb\(settings\.highlightColor\)/);
+});
+
+test("translation sources are opt-in capable and both interfaces render attributed results", () => {
+  const popupHtml = readFileSync(resolve(root, "popup.html"), "utf8");
+  const popupScript = readFileSync(resolve(root, "popup.js"), "utf8");
+  const contentScript = readFileSync(resolve(root, "content.js"), "utf8");
+  assert.match(popupHtml, /id="myMemorySourceToggle"[^>]+checked/);
+  assert.match(popupHtml, /id="wiktionarySourceToggle"(?![^>]+checked)/);
+  assert.match(popupHtml, /会向该来源发送当前单个英文词/);
+  assert.match(popupScript, /SET_TRANSLATION_SOURCE/);
+  assert.match(popupScript, /getTranslationSourceLabel/);
+  assert.match(contentScript, /getTranslationSourceLabel/);
+  assert.match(contentScript, /class="translations" id="cardTranslations"/);
 });

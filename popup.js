@@ -18,6 +18,7 @@
     getCategory,
     getCategoryColor,
     getHighlightRgb,
+    getTranslationSourceLabel,
     summarizeHistory,
     parseWordImportText
   } = globalThis.VocabGlowUtils;
@@ -40,6 +41,9 @@
     saveCategoryNameButton: document.getElementById("saveCategoryNameButton"),
     newCategoryButton: document.getElementById("newCategoryButton"),
     deleteCategoryButton: document.getElementById("deleteCategoryButton"),
+    myMemorySourceToggle: document.getElementById("myMemorySourceToggle"),
+    wiktionarySourceToggle: document.getElementById("wiktionarySourceToggle"),
+    translationSourceCount: document.getElementById("translationSourceCount"),
     addForm: document.getElementById("addForm"),
     addButton: document.getElementById("addButton"),
     wordInput: document.getElementById("wordInput"),
@@ -89,6 +93,8 @@
   elements.saveCategoryNameButton.addEventListener("click", () => void handleCategoryRename());
   elements.newCategoryButton.addEventListener("click", () => void handleCategoryCreate());
   elements.deleteCategoryButton.addEventListener("click", () => void handleCategoryDelete());
+  elements.myMemorySourceToggle.addEventListener("change", () => void handleTranslationSourceChange("mymemory", elements.myMemorySourceToggle));
+  elements.wiktionarySourceToggle.addEventListener("change", () => void handleTranslationSourceChange("wiktionary", elements.wiktionarySourceToggle));
   elements.importFileButton.addEventListener("click", () => {
     elements.importFileInput.value = "";
     elements.importFileInput.click();
@@ -155,6 +161,27 @@
       showNotice(error instanceof Error ? error.message : "添加失败", "error");
     } finally {
       elements.addButton.disabled = false;
+    }
+  }
+
+  async function handleTranslationSourceChange(source, toggle) {
+    const enabled = toggle.checked;
+    toggle.disabled = true;
+    try {
+      const response = await sendMessage({ type: "SET_TRANSLATION_SOURCE", source, enabled });
+      if (!response.ok) {
+        throw new Error(response.error || "更新翻译来源失败");
+      }
+      settings = sanitizeSettings(response.settings);
+      applyHistoryResponse(response);
+      renderTranslationSources();
+      const name = source === "wiktionary" ? "中文维基词典" : "MyMemory";
+      showNotice(`${name}已${enabled ? "开启" : "关闭"} · 可撤回`);
+    } catch (error) {
+      toggle.checked = !enabled;
+      showNotice(error instanceof Error ? error.message : "更新翻译来源失败", "error");
+    } finally {
+      toggle.disabled = false;
     }
   }
 
@@ -606,7 +633,8 @@
         return true;
       }
       const categoryName = getCategory(settings, entry.categoryId).name;
-      return `${entry.word} ${entry.translation} ${categoryName}`.toLocaleLowerCase("zh-CN").includes(query);
+      const translations = entry.translationResults.map((result) => result.text).join(" ");
+      return `${entry.word} ${translations} ${categoryName}`.toLocaleLowerCase("zh-CN").includes(query);
     });
 
     elements.wordCount.textContent = String(allEntries.length);
@@ -616,6 +644,7 @@
     elements.wordList.classList.toggle("hidden", visibleEntries.length === 0);
     elements.clearButton.disabled = allEntries.length === 0;
     renderStatus();
+    renderTranslationSources();
     renderColorSetting();
     renderHistoryActions();
   }
@@ -671,6 +700,13 @@
   function renderStatus() {
     elements.enabledToggle.checked = Boolean(settings.enabled);
     elements.highlightStatus.textContent = settings.enabled ? "网页高亮已开启" : "网页高亮已暂停";
+  }
+
+  function renderTranslationSources() {
+    elements.myMemorySourceToggle.checked = Boolean(settings.translationSources.mymemory);
+    elements.wiktionarySourceToggle.checked = Boolean(settings.translationSources.wiktionary);
+    const enabledCount = Object.values(settings.translationSources).filter(Boolean).length;
+    elements.translationSourceCount.textContent = `${enabledCount} 个已启用`;
   }
 
   function renderColorSetting() {
@@ -802,10 +838,10 @@
       <div class="word-top">
         <div class="word-copy">
           <h3 class="word-name"></h3>
-          <p class="word-translation"></p>
+          <div class="word-translations"></div>
         </div>
         <div class="word-actions">
-          <button class="icon-button retry-button hidden" data-action="retry" type="button" title="重试翻译" aria-label="重试翻译">
+          <button class="icon-button retry-button hidden" data-action="retry" type="button" title="刷新多来源翻译" aria-label="刷新多来源翻译">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.34 5.66"></path><path d="M20 4v7h-7"></path></svg>
           </button>
           <button class="icon-button" data-action="edit" type="button" title="修改翻译" aria-label="修改翻译">
@@ -832,16 +868,10 @@
     `;
 
     item.querySelector(".word-name").textContent = entry.word;
-    const translationElement = item.querySelector(".word-translation");
+    const translationElement = item.querySelector(".word-translations");
     const retryButton = item.querySelector(".retry-button");
-    if (entry.translationStatus === "loading") {
-      translationElement.textContent = "正在获取中文翻译…";
-      translationElement.classList.add("loading");
-    } else if (entry.translation) {
-      translationElement.textContent = entry.translation;
-    } else {
-      translationElement.textContent = "未获取到翻译，可手工补充";
-      translationElement.classList.add("error");
+    renderWordTranslations(translationElement, entry);
+    if (entry.translationStatus !== "loading") {
       retryButton.classList.remove("hidden");
     }
     const categorySelect = item.querySelector(".word-category-select");
@@ -851,6 +881,34 @@
     item.querySelector(".word-meta").textContent = `更新于 ${formatDate(entry.updatedAt)}`;
     item.querySelector(".edit-input").value = entry.translation;
     return item;
+  }
+
+  function renderWordTranslations(container, entry) {
+    const nodes = entry.translationResults.map((result) => {
+      const row = document.createElement("div");
+      row.className = "translation-result";
+      const source = document.createElement("span");
+      source.className = "translation-source";
+      source.textContent = `${getTranslationSourceLabel(result.source)}${result.partOfSpeech ? ` · ${result.partOfSpeech}` : ""}`;
+      const text = document.createElement("span");
+      text.className = "translation-text";
+      text.textContent = result.text;
+      row.append(source, text);
+      return row;
+    });
+
+    if (entry.translationStatus === "loading") {
+      const state = document.createElement("p");
+      state.className = "translation-state";
+      state.textContent = entry.translationResults.length > 0 ? "正在刷新其他来源…" : "正在获取中文翻译…";
+      nodes.push(state);
+    } else if (entry.translationResults.length === 0) {
+      const state = document.createElement("p");
+      state.className = "translation-state error";
+      state.textContent = "未获取到翻译，可手工补充或刷新";
+      nodes.push(state);
+    }
+    container.replaceChildren(...nodes);
   }
 
   function formatDate(value) {

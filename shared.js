@@ -14,6 +14,19 @@
   const MAX_CATEGORY_NAME_LENGTH = 24;
   const MAX_IMPORT_WORDS = 500;
   const MAX_IMPORT_FILE_BYTES = 1024 * 1024;
+  const MAX_TRANSLATION_RESULTS = 8;
+  const MAX_TRANSLATION_LENGTH = 240;
+  const TRANSLATION_SOURCES = Object.freeze({
+    manual: Object.freeze({ label: "手工释义", priority: 0 }),
+    import: Object.freeze({ label: "导入释义", priority: 1 }),
+    saved: Object.freeze({ label: "已有释义", priority: 2 }),
+    mymemory: Object.freeze({ label: "MyMemory", priority: 3 }),
+    wiktionary: Object.freeze({ label: "维基词典", priority: 4 })
+  });
+  const DEFAULT_TRANSLATION_SOURCES = Object.freeze({
+    mymemory: true,
+    wiktionary: false
+  });
 
   const DEFAULT_CATEGORIES = Object.freeze({
     [DEFAULT_CATEGORY_ID]: Object.freeze({
@@ -26,7 +39,8 @@
   const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     highlightColor: DEFAULT_HIGHLIGHT_COLOR,
-    categories: DEFAULT_CATEGORIES
+    categories: DEFAULT_CATEGORIES,
+    translationSources: DEFAULT_TRANSLATION_SOURCES
   });
 
   const WORD_PATTERN = /^[A-Za-z]+(?:['-][A-Za-z]+)*$/;
@@ -88,13 +102,16 @@
         continue;
       }
 
+      const translation = cleanTranslationText(entry.translation);
+      const translationResults = sanitizeTranslationResults(entry.translationResults, translation);
       sanitized[key] = {
         key,
         word: cleanWord(entry.word) || key,
-        translation: typeof entry.translation === "string" ? entry.translation.trim() : "",
+        translation: translationResults[0]?.text || translation,
+        translationResults,
         translationStatus: ["loading", "ready", "error"].includes(entry.translationStatus)
           ? entry.translationStatus
-          : entry.translation
+          : translationResults.length > 0
             ? "ready"
             : "error",
         createdAt: typeof entry.createdAt === "string" ? entry.createdAt : new Date(0).toISOString(),
@@ -108,6 +125,125 @@
     }
 
     return sanitized;
+  }
+
+  function cleanTranslationText(value) {
+    return typeof value === "string"
+      ? value.normalize("NFC").replace(/\s+/g, " ").trim().slice(0, MAX_TRANSLATION_LENGTH)
+      : "";
+  }
+
+  function sanitizeTranslationResults(value, fallbackTranslation = "") {
+    const candidates = Array.isArray(value) ? value : [];
+    const results = [];
+    const seen = new Set();
+
+    for (const [index, candidate] of candidates.entries()) {
+      if (!candidate || typeof candidate !== "object") {
+        continue;
+      }
+      const text = cleanTranslationText(candidate.text);
+      const dedupeKey = text.toLocaleLowerCase("zh-CN");
+      if (!text || seen.has(dedupeKey)) {
+        continue;
+      }
+      const source = Object.hasOwn(TRANSLATION_SOURCES, candidate.source)
+        ? candidate.source
+        : "saved";
+      const partOfSpeech = cleanPartOfSpeech(candidate.partOfSpeech);
+      results.push({ source, text, ...(partOfSpeech ? { partOfSpeech } : {}), index });
+      seen.add(dedupeKey);
+    }
+
+    const fallback = cleanTranslationText(fallbackTranslation);
+    const fallbackKey = fallback.toLocaleLowerCase("zh-CN");
+    if (fallback && !seen.has(fallbackKey)) {
+      results.push({ source: "saved", text: fallback, index: -1 });
+    }
+
+    return results
+      .sort((left, right) => (
+        TRANSLATION_SOURCES[left.source].priority - TRANSLATION_SOURCES[right.source].priority
+        || left.index - right.index
+      ))
+      .slice(0, MAX_TRANSLATION_RESULTS)
+      .map(({ index, ...result }) => result);
+  }
+
+  function cleanPartOfSpeech(value) {
+    if (typeof value !== "string") {
+      return "";
+    }
+    return value.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 16);
+  }
+
+  function getTranslationSourceLabel(source) {
+    return TRANSLATION_SOURCES[source]?.label || TRANSLATION_SOURCES.saved.label;
+  }
+
+  function extractWiktionaryTranslations(value, word) {
+    if (typeof value !== "string") {
+      return [];
+    }
+
+    const partOfSpeechAliases = new Map([
+      ["名词", "名词"], ["名詞", "名词"], ["专有名词", "专有名词"], ["專有名詞", "专有名词"],
+      ["动词", "动词"], ["動詞", "动词"], ["形容词", "形容词"], ["形容詞", "形容词"],
+      ["副词", "副词"], ["副詞", "副词"], ["代词", "代词"], ["代詞", "代词"],
+      ["介词", "介词"], ["介詞", "介词"], ["连词", "连词"], ["連詞", "连词"],
+      ["感叹词", "感叹词"], ["感嘆詞", "感叹词"], ["数词", "数词"], ["數詞", "数词"],
+      ["限定词", "限定词"], ["限定詞", "限定词"], ["短语", "短语"], ["短語", "短语"],
+      ["习语", "习语"], ["習語", "习语"]
+    ]);
+    const results = [];
+    const targetKey = normalizeKey(word);
+    let inEnglishSection = false;
+    let partOfSpeech = "";
+
+    for (const rawLine of value.split(/\r\n|\n|\r/)) {
+      const line = rawLine.trim();
+      const languageHeading = line.match(/^==\s*([^=]+?)\s*==$/);
+      if (languageHeading) {
+        inEnglishSection = /^(?:英语|英語)$/.test(languageHeading[1].trim());
+        partOfSpeech = "";
+        continue;
+      }
+      if (!inEnglishSection || !line) {
+        continue;
+      }
+
+      const heading = line.match(/^===\s*([^=]+?)\s*===$/);
+      if (heading) {
+        partOfSpeech = partOfSpeechAliases.get(heading[1].trim()) || "";
+        continue;
+      }
+      if (/^={3,}/.test(line)) {
+        partOfSpeech = "";
+        continue;
+      }
+      if (!partOfSpeech) {
+        continue;
+      }
+
+      const text = cleanTranslationText(line.replace(/^(?:[-*#]+|\d+[.)、])\s*/, ""));
+      const firstToken = text.split(/[\s（(]/, 1)[0];
+      if (
+        !text
+        || !hasChineseText(text)
+        || text.length > 120
+        || (targetKey && normalizeKey(firstToken) === targetKey)
+        || /^(?:近义词|近義詞|反义词|反義詞|同义词|同義詞|上位词|上位詞|下位词|下位詞|参见|參見|国际音标|國際音標|韵部|韻部|断字|斷字)[：:]/.test(text)
+      ) {
+        continue;
+      }
+
+      results.push({ source: "wiktionary", text, partOfSpeech });
+      if (results.length >= 4) {
+        break;
+      }
+    }
+
+    return sanitizeTranslationResults(results);
   }
 
   function isValidHighlightColor(value) {
@@ -195,10 +331,21 @@
   function sanitizeSettings(value) {
     const stored = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     const categories = sanitizeCategories(stored.categories, stored.highlightColor);
+    const storedSources = stored.translationSources && typeof stored.translationSources === "object"
+      ? stored.translationSources
+      : {};
     return {
       enabled: typeof stored.enabled === "boolean" ? stored.enabled : DEFAULT_SETTINGS.enabled,
       highlightColor: categories[DEFAULT_CATEGORY_ID].color,
-      categories
+      categories,
+      translationSources: {
+        mymemory: typeof storedSources.mymemory === "boolean"
+          ? storedSources.mymemory
+          : DEFAULT_TRANSLATION_SOURCES.mymemory,
+        wiktionary: typeof storedSources.wiktionary === "boolean"
+          ? storedSources.wiktionary
+          : DEFAULT_TRANSLATION_SOURCES.wiktionary
+      }
     };
   }
 
@@ -409,12 +556,19 @@
     MAX_CATEGORY_NAME_LENGTH,
     MAX_IMPORT_WORDS,
     MAX_IMPORT_FILE_BYTES,
+    MAX_TRANSLATION_RESULTS,
+    TRANSLATION_SOURCES,
+    DEFAULT_TRANSLATION_SOURCES,
     cleanWord,
     isValidWord,
     normalizeKey,
     escapeRegExp,
     buildWordMatcher,
     sanitizeEntries,
+    cleanTranslationText,
+    sanitizeTranslationResults,
+    getTranslationSourceLabel,
+    extractWiktionaryTranslations,
     isValidHighlightColor,
     normalizeHighlightColor,
     normalizeCategoryId,

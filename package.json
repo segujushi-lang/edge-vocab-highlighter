@@ -1,7 +1,7 @@
 {
   "name": "shici-edge-vocab-highlighter",
-  "version": "1.4.0",
-  "description": "支持分类颜色和 TXT/Markdown 批量导入的 Microsoft Edge 生词高亮与中文翻译扩展",
+  "version": "1.5.0",
+  "description": "支持分类颜色、批量导入和多来源中文释义的 Microsoft Edge 生词高亮扩展",
   "author": "segujushi-lang",
   "license": "MIT",
   "keywords": [

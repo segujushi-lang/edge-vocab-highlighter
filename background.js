@@ -16,12 +16,17 @@ const {
   DEFAULT_CATEGORY_ID,
   MAX_CATEGORIES,
   MAX_IMPORT_WORDS,
+  cleanTranslationText,
+  sanitizeTranslationResults,
+  extractWiktionaryTranslations,
   decodeHtmlEntities,
   hasChineseText
 } = globalThis.VocabGlowUtils;
 
 const CONTEXT_MENU_ID = "vocab-glow-save-selection";
-const TRANSLATION_ENDPOINT = "https://api.mymemory.translated.net/get";
+const MYMEMORY_ENDPOINT = "https://api.mymemory.translated.net/get";
+const WIKTIONARY_ENDPOINT = "https://zh.wiktionary.org/w/api.php";
+const AUTOMATIC_TRANSLATION_SOURCES = new Set(["mymemory", "wiktionary"]);
 const HISTORY_LIMIT = 20;
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -139,6 +144,11 @@ async function handleMessage(message, sender) {
       return runWithHistory(message.enabled ? "开启网页高亮" : "暂停网页高亮", () => setEnabled(message.enabled));
     case "SET_HIGHLIGHT_COLOR":
       return runWithHistory("修改高亮颜色", () => setHighlightColor(message.highlightColor));
+    case "SET_TRANSLATION_SOURCE":
+      return runWithHistory(
+        `${message.enabled ? "开启" : "关闭"}${message.source === "wiktionary" ? "维基词典" : "MyMemory"}翻译`,
+        () => setTranslationSource(message.source, message.enabled)
+      );
     case "CREATE_CATEGORY":
       return runWithHistory(
         (_before, _after, result) => `新建分类 ${result.category.name}`,
@@ -218,21 +228,29 @@ async function saveWord({ word, translation = "", sourceUrl = "", categoryId }) 
     throw new Error("请选择一个完整的英文单词");
   }
 
-  const manualTranslation = typeof translation === "string" ? translation.trim().slice(0, 240) : "";
+  const manualTranslation = cleanTranslationText(translation);
   const { entries, settings } = await getState();
   const now = new Date().toISOString();
   const existing = entries[key];
   const targetCategoryId = categoryId === undefined || categoryId === null || categoryId === ""
     ? resolveCategoryId(existing?.categoryId, settings.categories)
     : requireCategoryId(categoryId, settings.categories);
-  const shouldTranslate = !manualTranslation && !existing?.translation;
+  const existingResults = sanitizeTranslationResults(existing?.translationResults, existing?.translation);
+  const translationResults = manualTranslation
+    ? sanitizeTranslationResults([
+      { source: "manual", text: manualTranslation },
+      ...existingResults.filter((result) => result.source !== "manual")
+    ])
+    : existingResults;
+  const shouldTranslate = !manualTranslation && translationResults.length === 0;
   const requestId = shouldTranslate ? createRequestId() : "";
 
   const entry = {
     key,
     word: existing?.word || displayWord,
-    translation: manualTranslation || existing?.translation || "",
-    translationStatus: manualTranslation || existing?.translation ? "ready" : "loading",
+    translation: translationResults[0]?.text || "",
+    translationResults,
+    translationStatus: translationResults.length > 0 ? "ready" : "loading",
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     sourceUrl: sanitizeSourceUrl(sourceUrl || existing?.sourceUrl || ""),
@@ -247,7 +265,7 @@ async function saveWord({ word, translation = "", sourceUrl = "", categoryId }) 
     return entry;
   }
 
-  return finishTranslation(key, requestId);
+  return finishTranslation(key, requestId, settings.translationSources);
 }
 
 async function importWordsWithHistory(value, categoryId) {
@@ -277,9 +295,7 @@ function sanitizeImportItems(value) {
     if (!isValidWord(word) || !key || itemsByKey.has(key)) {
       continue;
     }
-    const translation = typeof item.translation === "string"
-      ? item.translation.trim().slice(0, 240)
-      : "";
+    const translation = cleanTranslationText(item.translation);
     itemsByKey.set(key, { key, word, translation });
   }
   return Array.from(itemsByKey.values());
@@ -305,6 +321,9 @@ async function insertImportedWords(items, categoryId) {
       key: item.key,
       word: item.word,
       translation: item.translation,
+      translationResults: item.translation
+        ? [{ source: "import", text: item.translation }]
+        : [],
       translationStatus: item.translation ? "ready" : "error",
       createdAt: now,
       updatedAt: now,
@@ -324,9 +343,9 @@ async function insertImportedWords(items, categoryId) {
   return { importedCount, skippedExistingCount, untranslatedCount };
 }
 
-async function finishTranslation(key, requestId) {
+async function finishTranslation(key, requestId, translationSources) {
   try {
-    const translation = await translateWord(key);
+    const automaticResults = await translateWord(key, translationSources);
     const { entries } = await getState();
     const current = entries[key];
 
@@ -334,9 +353,14 @@ async function finishTranslation(key, requestId) {
       return current || null;
     }
 
+    const retainedResults = current.translationResults.filter(
+      (result) => !AUTOMATIC_TRANSLATION_SOURCES.has(result.source)
+    );
+    const translationResults = sanitizeTranslationResults([...retainedResults, ...automaticResults]);
     const updated = {
       ...current,
-      translation,
+      translation: translationResults[0]?.text || "",
+      translationResults,
       translationStatus: "ready",
       translationRequestId: "",
       updatedAt: new Date().toISOString()
@@ -354,7 +378,7 @@ async function finishTranslation(key, requestId) {
 
     const updated = {
       ...current,
-      translationStatus: "error",
+      translationStatus: current.translationResults.length > 0 ? "ready" : "error",
       translationRequestId: "",
       updatedAt: new Date().toISOString()
     };
@@ -365,10 +389,76 @@ async function finishTranslation(key, requestId) {
   }
 }
 
-async function translateWord(word) {
-  const url = new URL(TRANSLATION_ENDPOINT);
+async function translateWord(word, translationSources) {
+  const providers = [];
+  if (translationSources?.mymemory) {
+    providers.push(translateWithMyMemory(word));
+  }
+  if (translationSources?.wiktionary) {
+    providers.push(translateWithWiktionary(word));
+  }
+  if (providers.length === 0) {
+    throw new Error("没有启用自动翻译来源");
+  }
+
+  const settled = await Promise.allSettled(providers);
+  const results = [];
+  for (const outcome of settled) {
+    if (outcome.status === "fulfilled") {
+      results.push(...outcome.value);
+    } else {
+      console.warn("[拾词] 单个翻译来源失败：", outcome.reason);
+    }
+  }
+
+  const sanitized = sanitizeTranslationResults(results);
+  if (sanitized.length === 0) {
+    throw new Error("已启用的翻译来源均未返回合适的中文释义");
+  }
+  return sanitized;
+}
+
+async function translateWithMyMemory(word) {
+  const url = new URL(MYMEMORY_ENDPOINT);
   url.searchParams.set("q", word);
   url.searchParams.set("langpair", "en|zh-CN");
+  url.searchParams.set("mt", "1");
+
+  const data = await fetchJson(url, "MyMemory");
+  if (Number(data.responseStatus) !== 200) {
+    throw new Error(data.responseDetails || "MyMemory 暂时不可用");
+  }
+
+  const candidates = [
+    data.responseData?.translatedText,
+    ...(Array.isArray(data.matches) ? data.matches.map((match) => match?.translation) : [])
+  ];
+  return sanitizeTranslationResults(candidates.flatMap((candidate) => {
+    const decoded = cleanTranslationText(decodeHtmlEntities(candidate));
+    return decoded && hasChineseText(decoded) ? [{ source: "mymemory", text: decoded }] : [];
+  })).slice(0, 3);
+}
+
+async function translateWithWiktionary(word) {
+  const url = new URL(WIKTIONARY_ENDPOINT);
+  url.searchParams.set("action", "query");
+  url.searchParams.set("prop", "extracts");
+  url.searchParams.set("explaintext", "1");
+  url.searchParams.set("redirects", "1");
+  url.searchParams.set("titles", word);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("formatversion", "2");
+  url.searchParams.set("origin", "*");
+
+  const data = await fetchJson(url, "维基词典");
+  const page = Array.isArray(data.query?.pages) ? data.query.pages[0] : null;
+  if (!page || page.missing) {
+    return [];
+  }
+  return extractWiktionaryTranslations(page.extract, word);
+}
+
+async function fetchJson(url, sourceName) {
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -376,27 +466,9 @@ async function translateWord(word) {
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
-      throw new Error(`翻译服务返回 ${response.status}`);
+      throw new Error(`${sourceName} 返回 ${response.status}`);
     }
-
-    const data = await response.json();
-    if (Number(data.responseStatus) !== 200) {
-      throw new Error(data.responseDetails || "翻译服务暂时不可用");
-    }
-
-    const candidates = [
-      data.responseData?.translatedText,
-      ...(Array.isArray(data.matches) ? data.matches.map((match) => match?.translation) : [])
-    ];
-
-    for (const candidate of candidates) {
-      const decoded = decodeHtmlEntities(candidate).trim();
-      if (decoded && hasChineseText(decoded)) {
-        return decoded.slice(0, 240);
-      }
-    }
-
-    throw new Error("没有找到合适的中文翻译");
+    return response.json();
   } finally {
     clearTimeout(timeoutId);
   }
@@ -417,7 +489,7 @@ async function removeWord(value) {
 
 async function updateTranslation(value, translation) {
   const key = normalizeKey(value);
-  const nextTranslation = typeof translation === "string" ? translation.trim().slice(0, 240) : "";
+  const nextTranslation = cleanTranslationText(translation);
   if (!key || !nextTranslation) {
     throw new Error("中文翻译不能为空");
   }
@@ -427,9 +499,14 @@ async function updateTranslation(value, translation) {
     throw new Error("这个单词已不在词库中");
   }
 
+  const translationResults = sanitizeTranslationResults([
+    { source: "manual", text: nextTranslation },
+    ...entries[key].translationResults.filter((result) => result.source !== "manual")
+  ]);
   entries[key] = {
     ...entries[key],
-    translation: nextTranslation,
+    translation: translationResults[0].text,
+    translationResults,
     translationStatus: "ready",
     translationRequestId: "",
     updatedAt: new Date().toISOString()
@@ -440,7 +517,7 @@ async function updateTranslation(value, translation) {
 
 async function retryTranslation(value) {
   const key = normalizeKey(value);
-  const { entries } = await getState();
+  const { entries, settings } = await getState();
   if (!key || !entries[key]) {
     throw new Error("这个单词已不在词库中");
   }
@@ -448,13 +525,12 @@ async function retryTranslation(value) {
   const requestId = createRequestId();
   entries[key] = {
     ...entries[key],
-    translation: "",
     translationStatus: "loading",
     translationRequestId: requestId,
     updatedAt: new Date().toISOString()
   };
   await setEntries(entries);
-  return finishTranslation(key, requestId);
+  return finishTranslation(key, requestId, settings.translationSources);
 }
 
 async function createCategory(value, color) {
@@ -590,6 +666,22 @@ async function setEnabled(enabled) {
 
 async function setHighlightColor(highlightColor) {
   return updateCategory(DEFAULT_CATEGORY_ID, { color: highlightColor });
+}
+
+async function setTranslationSource(source, enabled) {
+  if (!Object.hasOwn({ mymemory: true, wiktionary: true }, source)) {
+    throw new Error("未知翻译来源");
+  }
+  const { settings } = await getState();
+  const nextSettings = sanitizeSettings({
+    ...settings,
+    translationSources: {
+      ...settings.translationSources,
+      [source]: Boolean(enabled)
+    }
+  });
+  await chrome.storage.local.set({ [STORAGE_KEYS.settings]: nextSettings });
+  return { settings: nextSettings };
 }
 
 async function clearWords() {
