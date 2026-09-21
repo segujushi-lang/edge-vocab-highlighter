@@ -3,7 +3,8 @@
 
   const STORAGE_KEYS = Object.freeze({
     entries: "vocabEntries",
-    settings: "vocabSettings"
+    settings: "vocabSettings",
+    history: "vocabActionHistory"
   });
 
   const DEFAULT_HIGHLIGHT_COLOR = "#ffdd57";
@@ -119,6 +120,28 @@
     };
   }
 
+  function summarizeHistory(value) {
+    if (value && typeof value === "object" && typeof value.canUndo === "boolean") {
+      return {
+        canUndo: value.canUndo,
+        canRedo: Boolean(value.canRedo),
+        undoLabel: typeof value.undoLabel === "string" ? value.undoLabel : "",
+        redoLabel: typeof value.redoLabel === "string" ? value.redoLabel : ""
+      };
+    }
+
+    const undo = value && Array.isArray(value.undo) ? value.undo : [];
+    const redo = value && Array.isArray(value.redo) ? value.redo : [];
+    const undoLabel = undo.at(-1)?.description;
+    const redoLabel = redo.at(-1)?.description;
+    return {
+      canUndo: undo.length > 0,
+      canRedo: redo.length > 0,
+      undoLabel: typeof undoLabel === "string" ? undoLabel : "",
+      redoLabel: typeof redoLabel === "string" ? redoLabel : ""
+    };
+  }
+
   function decodeHtmlEntities(value) {
     if (typeof value !== "string") {
       return "";
@@ -156,6 +179,7 @@
     normalizeHighlightColor,
     sanitizeSettings,
     getHighlightRgb,
+    summarizeHistory,
     decodeHtmlEntities,
     hasChineseText
   });

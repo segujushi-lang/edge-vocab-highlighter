@@ -160,9 +160,36 @@ footer {
   align-items: center; border-top: 1px solid var(--line); color: #9298a2; display: flex; font-size: 10px;
   justify-content: space-between; margin: 0 14px; padding: 13px 8px 15px;
 }
+.footer-actions { align-items: center; display: flex; gap: 3px; }
+.history-button {
+  align-items: center; background: transparent; border: 0; border-radius: 6px; color: #697386; cursor: pointer;
+  display: flex; font: 700 17px/1 sans-serif; height: 26px; justify-content: center; padding: 0; width: 26px;
+}
+.history-button:hover:not(:disabled) { background: #efebe1; color: #252c38; }
+.history-button:disabled { cursor: default; opacity: .28; }
+.shortcut-help-button { background: transparent; border: 0; color: #697386; cursor: pointer; font-size: 10px; padding: 4px; }
+.shortcut-help-button:hover { color: #252c38; text-decoration: underline; }
 .clear-button { background: transparent; border: 0; color: #a15b6e; cursor: pointer; font-size: 10px; padding: 3px; }
 .clear-button:hover { color: #be123c; text-decoration: underline; }
 .clear-button:disabled { cursor: default; opacity: .4; text-decoration: none; }
+
+.shortcut-dialog {
+  background: var(--paper); border: 1px solid #d9d3c5; border-radius: 16px; box-shadow: 0 22px 60px rgba(15,23,42,.30);
+  color: var(--ink); max-height: calc(100vh - 32px); max-width: calc(100vw - 32px); padding: 18px; width: 340px;
+}
+.shortcut-dialog::backdrop { background: rgba(15,23,42,.38); }
+.dialog-heading { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 14px; }
+.dialog-heading h2 { font-size: 17px; margin: 0; }
+.dialog-close { background: transparent; border: 0; border-radius: 7px; color: #8d96a3; cursor: pointer; font-size: 21px; line-height: 1; padding: 3px 7px; }
+.dialog-close:hover { background: #ece8dc; color: #354052; }
+.shortcut-group + .shortcut-group { border-top: 1px solid var(--line); margin-top: 13px; padding-top: 13px; }
+.shortcut-group h3 { color: #5b6472; font-size: 11px; margin: 0 0 7px; }
+.shortcut-list { display: grid; gap: 6px; margin: 0; }
+.shortcut-list div { align-items: center; display: flex; gap: 10px; justify-content: space-between; }
+.shortcut-list dt { color: #293243; font-size: 10px; font-weight: 700; margin: 0; }
+.shortcut-list dd { color: var(--muted); font-size: 10px; margin: 0; text-align: right; }
+kbd { background: #fff; border: 1px solid #d7d1c3; border-bottom-width: 2px; border-radius: 5px; box-shadow: 0 1px 0 rgba(23,32,51,.07); font: 700 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace; padding: 2px 4px; }
+.shortcut-note { color: #9299a5; font-size: 9px; line-height: 1.5; margin: 13px 0 0; }
 
 .notice {
   background: #172033; border-radius: 9px; bottom: 14px; box-shadow: 0 10px 28px rgba(15,23,42,.25); color: #fff;

@@ -77,6 +77,22 @@ test("sanitizes highlight settings and converts the selected color to RGB", () =
   assert.equal(rgb.blue, 239);
 });
 
+test("summarizes undo and redo history without exposing snapshots", () => {
+  const status = utils.summarizeHistory({
+    undo: [{ description: "添加 Insight", entries: { secret: true } }],
+    redo: [{ description: "删除 Curious", settings: { secret: true } }]
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(status)), {
+    canUndo: true,
+    canRedo: true,
+    undoLabel: "添加 Insight",
+    redoLabel: "删除 Curious"
+  });
+
+  assert.equal(utils.summarizeHistory(null).canUndo, false);
+  assert.equal(utils.summarizeHistory(status).redoLabel, "删除 Curious");
+});
+
 test("decodes translation entities and recognizes Chinese text", () => {
   assert.equal(utils.decodeHtmlEntities("洞见 &amp; 灵感 &#x4E50;"), "洞见 & 灵感 乐");
   assert.equal(utils.hasChineseText("意外发现"), true);

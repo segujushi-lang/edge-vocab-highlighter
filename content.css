@@ -11,7 +11,7 @@ mark.sl-word-highlight[data-vocab-word] {
   box-decoration-break: clone !important;
   -webkit-box-decoration-break: clone !important;
   color: inherit !important;
-  cursor: help !important;
+  cursor: inherit !important;
   font: inherit !important;
   margin: 0 !important;
   padding: 0 0.08em !important;

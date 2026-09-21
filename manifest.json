@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "拾词 · 网页生词荧光笔",
   "short_name": "拾词",
-  "version": "1.1.1",
-  "description": "保存陌生英文单词，在网页中自动高亮，点击即可查看中文翻译。",
+  "version": "1.2.0",
+  "description": "保存陌生英文单词，在网页中自动高亮，按住 Alt 或 Option 点击即可查看中文翻译。",
   "author": "segujushi-lang",
   "homepage_url": "https://github.com/segujushi-lang/shici-edge-vocab-highlighter",
   "permissions": [
@@ -19,6 +19,35 @@
   "action": {
     "default_title": "拾词 · 管理生词",
     "default_popup": "popup.html"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+S",
+        "mac": "Option+Shift+S"
+      }
+    },
+    "toggle-highlighting": {
+      "suggested_key": {
+        "default": "Alt+Shift+H",
+        "mac": "Option+Shift+H"
+      },
+      "description": "暂停或恢复网页高亮"
+    },
+    "undo-last-action": {
+      "suggested_key": {
+        "default": "Alt+Shift+Z",
+        "mac": "Option+Shift+Z"
+      },
+      "description": "撤回上一次拾词操作"
+    },
+    "redo-last-action": {
+      "suggested_key": {
+        "default": "Alt+Shift+Y",
+        "mac": "Option+Shift+Y"
+      },
+      "description": "重做上一次拾词操作"
+    }
   },
   "content_scripts": [
     {

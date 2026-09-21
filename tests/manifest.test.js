@@ -38,3 +38,33 @@ test("color picker previews the highlight with dark and light page text", () => 
   assert.match(popupCss, /\.preview-dark\s*\{[^}]*color:\s*#f8fafc/s);
   assert.match(popupCss, /rgb\(var\(--preview-rgb\)\s*\/\s*82%\)/);
 });
+
+test("extension commands use explicit modifier shortcuts and stay within the browser limit", () => {
+  const commands = Object.values(manifest.commands || {});
+  assert.equal(commands.length, 4);
+  for (const command of commands) {
+    assert.match(command.suggested_key.default, /^(Alt|Ctrl)\+/);
+  }
+  assert.ok(manifest.commands["undo-last-action"]);
+  assert.ok(manifest.commands["redo-last-action"]);
+  assert.ok(manifest.commands["toggle-highlighting"]);
+});
+
+test("content interaction preserves normal website clicks and requires Alt or Option", () => {
+  const contentScript = readFileSync(resolve(root, "content.js"), "utf8");
+  assert.match(contentScript, /return event\.altKey && !event\.ctrlKey && !event\.metaKey && !event\.shiftKey/);
+  assert.match(contentScript, /event\.stopImmediatePropagation\(\)/);
+  assert.match(contentScript, /按住 Alt（macOS 为 Option）点击查看中文翻译/);
+});
+
+test("popup exposes common undo, redo, search, and escape shortcuts", () => {
+  const popupHtml = readFileSync(resolve(root, "popup.html"), "utf8");
+  const popupScript = readFileSync(resolve(root, "popup.js"), "utf8");
+  assert.match(popupHtml, /id="undoButton"/);
+  assert.match(popupHtml, /id="redoButton"/);
+  assert.match(popupHtml, /id="shortcutDialog"/);
+  assert.match(popupScript, /UNDO_LAST_ACTION/);
+  assert.match(popupScript, /REDO_LAST_ACTION/);
+  assert.match(popupScript, /key === "\/"/);
+  assert.match(popupScript, /event\.key === "Escape"/);
+});

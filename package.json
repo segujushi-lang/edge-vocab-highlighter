@@ -1,6 +1,6 @@
 {
   "name": "shici-edge-vocab-highlighter",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Microsoft Edge 生词保存、网页高亮与中文翻译扩展",
   "author": "segujushi-lang",
   "license": "MIT",
@@ -32,7 +32,7 @@
   "homepage": "https://github.com/segujushi-lang/shici-edge-vocab-highlighter#readme",
   "scripts": {
     "check": "node --check shared.js && node --check background.js && node --check content.js && node --check popup.js",
-    "test": "node --test --test-isolation=none tests/shared.test.js tests/manifest.test.js",
+    "test": "node --test --test-isolation=none tests/shared.test.js tests/manifest.test.js tests/background.test.js",
     "test:serve": "node tests/serve-fixture.js"
   }
 }

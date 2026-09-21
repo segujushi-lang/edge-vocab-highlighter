@@ -9,12 +9,14 @@ const {
   isValidHighlightColor,
   normalizeHighlightColor,
   sanitizeSettings,
+  summarizeHistory,
   decodeHtmlEntities,
   hasChineseText
 } = globalThis.VocabGlowUtils;
 
 const CONTEXT_MENU_ID = "vocab-glow-save-selection";
 const TRANSLATION_ENDPOINT = "https://api.mymemory.translated.net/get";
+const HISTORY_LIMIT = 20;
 
 chrome.runtime.onInstalled.addListener(() => {
   void initializeStorage();
@@ -25,16 +27,25 @@ chrome.runtime.onStartup.addListener(() => {
   rebuildContextMenu();
 });
 
+chrome.commands.onCommand.addListener((command) => {
+  void handleCommand(command).catch((error) => {
+    console.warn("[拾词] 快捷键操作失败：", error);
+  });
+});
+
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== CONTEXT_MENU_ID || !info.selectionText) {
     return;
   }
 
-  void saveWord({
-    word: info.selectionText,
-    sourceUrl: info.pageUrl || tab?.url || ""
-  })
-    .then((entry) => notifyTab(tab?.id, { type: "WORD_SAVED", entry }))
+  const displayWord = cleanWord(info.selectionText);
+  void runWithHistory(`添加 ${displayWord}`, async () => ({
+    entry: await saveWord({
+      word: displayWord,
+      sourceUrl: info.pageUrl || tab?.url || ""
+    })
+  }))
+    .then(({ entry }) => notifyTab(tab?.id, { type: "WORD_SAVED", entry }))
     .catch((error) => notifyTab(tab?.id, {
       type: "WORD_SAVE_ERROR",
       message: error instanceof Error ? error.message : "保存失败"
@@ -96,30 +107,48 @@ async function handleMessage(message, sender) {
 
   switch (message.type) {
     case "GET_STATE":
-      return getState();
+      return getClientState();
     case "ADD_WORD":
-      return {
+      return runWithHistory(`添加 ${cleanWord(message.word)}`, async () => ({
         entry: await saveWord({
           word: message.word,
           translation: message.translation,
           sourceUrl: message.sourceUrl || sender.tab?.url || ""
         })
-      };
+      }));
     case "REMOVE_WORD":
-      return removeWord(message.key);
+      return runWithHistory(
+        (before) => `删除 ${before.entries[normalizeKey(message.key)]?.word || cleanWord(message.key)}`,
+        () => removeWord(message.key)
+      );
     case "UPDATE_TRANSLATION":
-      return { entry: await updateTranslation(message.key, message.translation) };
+      return runWithHistory(
+        (before) => `修改 ${before.entries[normalizeKey(message.key)]?.word || cleanWord(message.key)} 的翻译`,
+        async () => ({ entry: await updateTranslation(message.key, message.translation) })
+      );
     case "RETRY_TRANSLATION":
-      return { entry: await retryTranslation(message.key) };
+      return runWithHistory(
+        (before) => `重新翻译 ${before.entries[normalizeKey(message.key)]?.word || cleanWord(message.key)}`,
+        async () => ({ entry: await retryTranslation(message.key) })
+      );
     case "SET_ENABLED":
-      return setEnabled(message.enabled);
+      return runWithHistory(message.enabled ? "开启网页高亮" : "暂停网页高亮", () => setEnabled(message.enabled));
     case "SET_HIGHLIGHT_COLOR":
-      return setHighlightColor(message.highlightColor);
+      return runWithHistory("修改高亮颜色", () => setHighlightColor(message.highlightColor));
     case "CLEAR_WORDS":
-      return clearWords();
+      return runWithHistory("清空词库", clearWords);
+    case "UNDO_LAST_ACTION":
+      return undoLastAction();
+    case "REDO_LAST_ACTION":
+      return redoLastAction();
     default:
       throw new Error("未知操作");
   }
+}
+
+async function getClientState() {
+  const [state, history] = await Promise.all([getState(), getHistory()]);
+  return { ...state, history: summarizeHistory(history) };
 }
 
 async function getState() {
@@ -346,6 +375,142 @@ async function clearWords() {
   return { cleared: true };
 }
 
+async function runWithHistory(description, operation) {
+  const before = await captureSnapshot();
+  const result = await operation();
+  const after = await captureSnapshot();
+  let history = await getHistory();
+
+  if (!snapshotsEqual(before, after)) {
+    const resolvedDescription = typeof description === "function"
+      ? description(before, after, result)
+      : description;
+    history.undo.push({
+      ...before,
+      description: String(resolvedDescription || "上一次操作")
+    });
+    history.undo = history.undo.slice(-HISTORY_LIMIT);
+    history.redo = [];
+    await setHistory(history);
+  }
+
+  return { ...(result || {}), history: summarizeHistory(history) };
+}
+
+async function undoLastAction() {
+  const history = await getHistory();
+  const checkpoint = history.undo.pop();
+  if (!checkpoint) {
+    return {
+      changed: false,
+      message: "没有可撤回的操作",
+      history: summarizeHistory(history)
+    };
+  }
+
+  const current = await captureSnapshot();
+  await restoreSnapshot(checkpoint);
+  history.redo.push({ ...current, description: checkpoint.description });
+  history.redo = history.redo.slice(-HISTORY_LIMIT);
+  await setHistory(history);
+  return {
+    changed: true,
+    message: `已撤回：${checkpoint.description}`,
+    history: summarizeHistory(history)
+  };
+}
+
+async function redoLastAction() {
+  const history = await getHistory();
+  const checkpoint = history.redo.pop();
+  if (!checkpoint) {
+    return {
+      changed: false,
+      message: "没有可重做的操作",
+      history: summarizeHistory(history)
+    };
+  }
+
+  const current = await captureSnapshot();
+  await restoreSnapshot(checkpoint);
+  history.undo.push({ ...current, description: checkpoint.description });
+  history.undo = history.undo.slice(-HISTORY_LIMIT);
+  await setHistory(history);
+  return {
+    changed: true,
+    message: `已重做：${checkpoint.description}`,
+    history: summarizeHistory(history)
+  };
+}
+
+async function captureSnapshot() {
+  const { entries, settings } = await getState();
+  return { entries, settings };
+}
+
+async function restoreSnapshot(snapshot) {
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.entries]: sanitizeEntries(snapshot.entries),
+    [STORAGE_KEYS.settings]: sanitizeSettings(snapshot.settings)
+  });
+}
+
+async function getHistory() {
+  const stored = await chrome.storage.session.get(STORAGE_KEYS.history);
+  const raw = stored[STORAGE_KEYS.history];
+  return {
+    undo: sanitizeCheckpoints(raw?.undo),
+    redo: sanitizeCheckpoints(raw?.redo)
+  };
+}
+
+function sanitizeCheckpoints(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.slice(-HISTORY_LIMIT).flatMap((checkpoint) => {
+    if (!checkpoint || typeof checkpoint !== "object") {
+      return [];
+    }
+    return [{
+      entries: sanitizeEntries(checkpoint.entries),
+      settings: sanitizeSettings(checkpoint.settings),
+      description: typeof checkpoint.description === "string"
+        ? checkpoint.description.slice(0, 120)
+        : "上一次操作"
+    }];
+  });
+}
+
+async function setHistory(history) {
+  await chrome.storage.session.set({ [STORAGE_KEYS.history]: history });
+}
+
+function snapshotsEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function handleCommand(command) {
+  let result;
+  if (command === "undo-last-action") {
+    result = await undoLastAction();
+  } else if (command === "redo-last-action") {
+    result = await redoLastAction();
+  } else if (command === "toggle-highlighting") {
+    const { settings } = await getState();
+    result = await runWithHistory(
+      settings.enabled ? "暂停网页高亮" : "开启网页高亮",
+      () => setEnabled(!settings.enabled)
+    );
+    result.message = result.settings.enabled ? "网页高亮已开启" : "网页高亮已暂停";
+  } else {
+    return;
+  }
+
+  notifyAllTabs({ type: "HISTORY_NOTICE", message: result.message || "操作完成" });
+}
+
 function sanitizeSourceUrl(value) {
   if (typeof value !== "string") {
     return "";
@@ -364,5 +529,13 @@ function notifyTab(tabId, message) {
 
   chrome.tabs.sendMessage(tabId, message, () => {
     void chrome.runtime.lastError;
+  });
+}
+
+function notifyAllTabs(message) {
+  chrome.tabs.query({}, (tabs) => {
+    for (const tab of tabs) {
+      notifyTab(tab.id, message);
+    }
   });
 }

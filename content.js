@@ -184,6 +184,10 @@
       if (message?.type === "WORD_SAVE_ERROR") {
         showToast(message.message || "保存失败", "error");
       }
+
+      if (message?.type === "HISTORY_NOTICE") {
+        showToast(message.message || "操作完成");
+      }
     });
   }
 
@@ -258,12 +262,12 @@
 
   function handlePageClick(event) {
     const target = event.target instanceof Element ? event.target.closest(HIGHLIGHT_SELECTOR) : null;
-    if (!target || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+    if (!target || !isPluginGesture(event)) {
       return;
     }
 
     event.preventDefault();
-    event.stopPropagation();
+    event.stopImmediatePropagation();
     hideSelectionButton();
     showCard(target.dataset.vocabWord, target.getBoundingClientRect());
   }
@@ -275,9 +279,19 @@
     }
 
     const target = event.target instanceof Element ? event.target.closest(HIGHLIGHT_SELECTOR) : null;
-    if (!target) {
+    if (target && isPluginGesture(event)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    if (!target || !isPluginGesture(event)) {
       hideCard();
     }
+  }
+
+  function isPluginGesture(event) {
+    return event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
   }
 
   function showCard(value, anchorRect) {
@@ -518,7 +532,8 @@
       mark.className = "sl-word-highlight";
       mark.dataset.vocabWord = key;
       mark.textContent = matchedWord;
-      mark.setAttribute("aria-label", `${matchedWord}，点击查看中文翻译`);
+      mark.setAttribute("aria-label", `${matchedWord}，按住 Alt 或 Option 点击查看中文翻译`);
+      mark.title = "按住 Alt（macOS 为 Option）点击查看中文翻译";
       applyHighlightColor(mark);
       fragment.append(mark);
       cursor = wordStart + matchedWord.length;

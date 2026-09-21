@@ -87,9 +87,44 @@
 
       <footer>
         <span id="highlightStatus">网页高亮已开启</span>
-        <button id="clearButton" class="clear-button" type="button">清空词库</button>
+        <div class="footer-actions">
+          <button id="undoButton" class="history-button" type="button" aria-label="撤回上一次操作" title="撤回（Ctrl/Command + Z）" disabled>↶</button>
+          <button id="redoButton" class="history-button" type="button" aria-label="重做上一次操作" title="重做（Ctrl + Y 或 Command + Shift + Z）" disabled>↷</button>
+          <button id="shortcutHelpButton" class="shortcut-help-button" type="button">快捷键</button>
+          <button id="clearButton" class="clear-button" type="button">清空</button>
+        </div>
       </footer>
     </main>
+
+    <dialog id="shortcutDialog" class="shortcut-dialog" aria-labelledby="shortcutTitle">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">KEYBOARD</p>
+          <h2 id="shortcutTitle">快捷键</h2>
+        </div>
+        <button id="shortcutCloseButton" class="dialog-close" type="button" aria-label="关闭快捷键说明">×</button>
+      </div>
+      <div class="shortcut-group">
+        <h3>网页与弹窗</h3>
+        <dl class="shortcut-list">
+          <div><dt><kbd>Alt / Option</kbd> + 点击</dt><dd>打开高亮单词释义</dd></div>
+          <div><dt><kbd>Ctrl / ⌘</kbd> + <kbd>Z</kbd></dt><dd>在弹窗撤回操作</dd></div>
+          <div><dt><kbd>Ctrl</kbd> + <kbd>Y</kbd> / <kbd>⌘⇧Z</kbd></dt><dd>在弹窗重做操作</dd></div>
+          <div><dt><kbd>/</kbd></dt><dd>聚焦词库搜索</dd></div>
+          <div><dt><kbd>Esc</kbd></dt><dd>清除搜索或关闭面板</dd></div>
+        </dl>
+      </div>
+      <div class="shortcut-group">
+        <h3>浏览器级插件快捷键</h3>
+        <dl class="shortcut-list">
+          <div><dt data-command="_execute_action">Alt + Shift + S</dt><dd>打开拾词</dd></div>
+          <div><dt data-command="toggle-highlighting">Alt + Shift + H</dt><dd>暂停或恢复高亮</dd></div>
+          <div><dt data-command="undo-last-action">Alt + Shift + Z</dt><dd>全局撤回插件操作</dd></div>
+          <div><dt data-command="redo-last-action">Alt + Shift + Y</dt><dd>全局重做插件操作</dd></div>
+        </dl>
+      </div>
+      <p class="shortcut-note">浏览器若占用了组合键，可能显示“未设置”；可在 Edge 的扩展快捷键页面重新指定。</p>
+    </dialog>
 
     <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
 

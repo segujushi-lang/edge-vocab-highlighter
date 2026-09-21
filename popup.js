@@ -11,11 +11,13 @@
     sanitizeEntries,
     normalizeHighlightColor,
     sanitizeSettings,
-    getHighlightRgb
+    getHighlightRgb,
+    summarizeHistory
   } = globalThis.VocabGlowUtils;
 
   let entries = {};
   let settings = { ...DEFAULT_SETTINGS };
+  let history = summarizeHistory(null);
   let noticeTimer = 0;
 
   const elements = {
@@ -34,6 +36,11 @@
     emptyState: document.getElementById("emptyState"),
     noResultState: document.getElementById("noResultState"),
     highlightStatus: document.getElementById("highlightStatus"),
+    undoButton: document.getElementById("undoButton"),
+    redoButton: document.getElementById("redoButton"),
+    shortcutHelpButton: document.getElementById("shortcutHelpButton"),
+    shortcutDialog: document.getElementById("shortcutDialog"),
+    shortcutCloseButton: document.getElementById("shortcutCloseButton"),
     clearButton: document.getElementById("clearButton"),
     notice: document.getElementById("notice")
   };
@@ -45,10 +52,16 @@
   elements.resetColorButton.addEventListener("click", () => void handleColorReset());
   elements.searchInput.addEventListener("input", render);
   elements.wordList.addEventListener("click", (event) => void handleListClick(event));
+  elements.undoButton.addEventListener("click", () => void handleHistoryAction("UNDO_LAST_ACTION"));
+  elements.redoButton.addEventListener("click", () => void handleHistoryAction("REDO_LAST_ACTION"));
+  elements.shortcutHelpButton.addEventListener("click", showShortcutDialog);
+  elements.shortcutCloseButton.addEventListener("click", () => elements.shortcutDialog.close());
   elements.clearButton.addEventListener("click", () => void handleClear());
+  document.addEventListener("keydown", handleKeyboardShortcut);
   chrome.storage.onChanged.addListener(handleStorageChange);
 
   void loadState();
+  loadCommandShortcuts();
 
   async function loadState() {
     try {
@@ -58,6 +71,7 @@
       }
       entries = sanitizeEntries(response.entries);
       settings = sanitizeSettings(response.settings);
+      history = summarizeHistory(response.history);
       render();
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "读取词库失败", "error");
@@ -80,10 +94,11 @@
       if (!response.ok) {
         throw new Error(response.error || "添加失败");
       }
+      applyHistoryResponse(response);
       elements.addForm.reset();
       elements.wordInput.focus();
       const detail = response.entry?.translation ? `已保存：${response.entry.translation}` : "已保存，可稍后补充翻译";
-      showNotice(`${word} ${detail}`);
+      showNotice(`${word} ${detail} · 可撤回`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "添加失败", "error");
     } finally {
@@ -99,7 +114,8 @@
       if (!response.ok) {
         throw new Error(response.error || "设置失败");
       }
-      settings = response.settings;
+      settings = sanitizeSettings(response.settings);
+      applyHistoryResponse(response);
       renderStatus();
       showNotice(enabled ? "网页高亮已开启" : "网页高亮已暂停");
     } catch (error) {
@@ -132,6 +148,7 @@
         throw new Error(response.error || "颜色设置失败");
       }
       settings = sanitizeSettings(response.settings);
+      applyHistoryResponse(response);
       renderColorSetting();
       showNotice(successMessage);
     } catch (error) {
@@ -178,12 +195,14 @@
         if (!response.ok) {
           throw new Error(response.error || "删除失败");
         }
-        showNotice(`${entry.word} 已移出词库`);
+        applyHistoryResponse(response);
+        showNotice(`${entry.word} 已移出词库 · 可撤回`);
       } else if (action === "retry") {
         const response = await sendMessage({ type: "RETRY_TRANSLATION", key });
         if (!response.ok) {
           throw new Error(response.error || "翻译失败");
         }
+        applyHistoryResponse(response);
         showNotice(response.entry?.translation ? `翻译完成：${response.entry.translation}` : "仍未找到合适的翻译");
       } else if (action === "save") {
         const translation = item.querySelector(".edit-input")?.value.trim() || "";
@@ -191,6 +210,7 @@
         if (!response.ok) {
           throw new Error(response.error || "保存失败");
         }
+        applyHistoryResponse(response);
         showNotice(`${entry.word} 的翻译已更新`);
       }
     } catch (error) {
@@ -211,15 +231,21 @@
       if (!response.ok) {
         throw new Error(response.error || "清空失败");
       }
-      showNotice("词库已清空");
+      applyHistoryResponse(response);
+      showNotice("词库已清空 · 可撤回");
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "清空失败", "error");
     } finally {
-      elements.clearButton.disabled = false;
+      elements.clearButton.disabled = Object.keys(entries).length === 0;
     }
   }
 
   function handleStorageChange(changes, areaName) {
+    if (areaName === "session" && changes[STORAGE_KEYS.history]) {
+      history = summarizeHistory(changes[STORAGE_KEYS.history].newValue);
+      renderHistoryActions();
+      return;
+    }
     if (areaName !== "local") {
       return;
     }
@@ -247,6 +273,7 @@
     elements.clearButton.disabled = allEntries.length === 0;
     renderStatus();
     renderColorSetting();
+    renderHistoryActions();
   }
 
   function renderStatus() {
@@ -266,6 +293,113 @@
     const { red, green, blue } = getHighlightRgb(color);
     elements.highlightColorValue.textContent = color.toLocaleUpperCase("en-US");
     elements.highlightPreview.style.setProperty("--preview-rgb", `${red} ${green} ${blue}`);
+  }
+
+  function renderHistoryActions() {
+    elements.undoButton.disabled = !history.canUndo;
+    elements.redoButton.disabled = !history.canRedo;
+    elements.undoButton.title = history.canUndo
+      ? `撤回：${history.undoLabel}（Ctrl/Command + Z）`
+      : "没有可撤回的操作";
+    elements.redoButton.title = history.canRedo
+      ? `重做：${history.redoLabel}（Ctrl + Y 或 Command + Shift + Z）`
+      : "没有可重做的操作";
+  }
+
+  function applyHistoryResponse(response) {
+    if (!response?.history) {
+      return;
+    }
+    history = summarizeHistory(response.history);
+    renderHistoryActions();
+  }
+
+  async function handleHistoryAction(type) {
+    elements.undoButton.disabled = true;
+    elements.redoButton.disabled = true;
+    try {
+      const response = await sendMessage({ type });
+      if (!response.ok) {
+        throw new Error(response.error || "历史操作失败");
+      }
+      applyHistoryResponse(response);
+      showNotice(response.message || "操作完成");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "历史操作失败", "error");
+      renderHistoryActions();
+    }
+  }
+
+  function handleKeyboardShortcut(event) {
+    if (event.defaultPrevented || elements.shortcutDialog.open) {
+      return;
+    }
+
+    const key = event.key.toLocaleLowerCase("en-US");
+    const editingTarget = isEditingTarget(event.target);
+    if (editingTarget && event.key !== "Escape") {
+      return;
+    }
+
+    const primaryModifier = event.ctrlKey || event.metaKey;
+    if (primaryModifier && key === "z" && !event.altKey) {
+      event.preventDefault();
+      void handleHistoryAction(event.shiftKey ? "REDO_LAST_ACTION" : "UNDO_LAST_ACTION");
+      return;
+    }
+
+    if (primaryModifier && key === "y" && !event.altKey) {
+      event.preventDefault();
+      void handleHistoryAction("REDO_LAST_ACTION");
+      return;
+    }
+
+    if (key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      elements.searchInput.focus();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      let handled = false;
+      const editPanels = elements.wordList.querySelectorAll(".edit-panel:not(.hidden)");
+      for (const panel of editPanels) {
+        panel.classList.add("hidden");
+        handled = true;
+      }
+      if (elements.searchInput.value) {
+        elements.searchInput.value = "";
+        render();
+        handled = true;
+      }
+      if (handled) {
+        event.preventDefault();
+      }
+    }
+  }
+
+  function isEditingTarget(target) {
+    return target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  }
+
+  function showShortcutDialog() {
+    if (!elements.shortcutDialog.open) {
+      elements.shortcutDialog.showModal();
+    }
+  }
+
+  function loadCommandShortcuts() {
+    chrome.commands.getAll((commands) => {
+      if (chrome.runtime.lastError) {
+        return;
+      }
+      for (const command of commands) {
+        const element = elements.shortcutDialog.querySelector(`[data-command="${command.name}"]`);
+        if (element) {
+          element.textContent = command.shortcut || "未设置";
+        }
+      }
+    });
   }
 
   function createWordItem(entry) {

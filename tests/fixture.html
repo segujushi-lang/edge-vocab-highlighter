@@ -13,6 +13,10 @@
     <p id="target"><span id="select-word">Serendipity</span> rewards the curious, while category and bobcat should stay untouched.</p>
     <div id="dynamic"></div>
     <script>
+      window.siteClickCount = 0;
+      document.getElementById("target").addEventListener("click", () => {
+        window.siteClickCount += 1;
+      });
       window.addDynamicText = () => {
         const paragraph = document.createElement("p");
         paragraph.textContent = "A second serendipity appeared after a dynamic DOM update.";
