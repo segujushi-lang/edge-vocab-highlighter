@@ -1,0 +1,26 @@
+mark.sl-word-highlight[data-vocab-word] {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0) 30%,
+    rgba(255, 221, 87, 0.82) 30%,
+    rgba(255, 221, 87, 0.82) 94%,
+    rgba(255, 255, 255, 0) 94%
+  ) !important;
+  border-radius: 0.14em !important;
+  box-decoration-break: clone !important;
+  -webkit-box-decoration-break: clone !important;
+  color: inherit !important;
+  cursor: help !important;
+  font: inherit !important;
+  margin: 0 !important;
+  padding: 0 0.08em !important;
+  text-decoration: none !important;
+  text-shadow: none !important;
+}
+
+mark.sl-word-highlight[data-vocab-word]:hover {
+  background-color: rgba(255, 214, 10, 0.35) !important;
+  outline: 2px solid rgba(234, 179, 8, 0.48) !important;
+  outline-offset: 1px !important;
+}

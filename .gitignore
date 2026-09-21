@@ -1,0 +1,14 @@
+# Codex internal working state
+.jspace/
+task_plan.md
+findings.md
+progress.md
+
+# Local browser smoke-test artifacts
+.edge-test-profile/
+tests/*.png
+
+# Common local files
+.DS_Store
+Thumbs.db
+*.log

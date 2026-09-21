@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>拾词 · 生词库</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <div class="brand-row">
+          <div class="brand-mark" aria-hidden="true"><span>A</span></div>
+          <div>
+            <p class="eyebrow">VOCABULARY HIGHLIGHTER</p>
+            <h1>拾词</h1>
+          </div>
+          <label class="switch" title="暂停或恢复网页高亮">
+            <input id="enabledToggle" type="checkbox" checked>
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="sr-only">启用网页高亮</span>
+          </label>
+        </div>
+        <p class="subtitle">把陌生变成眼熟，再把眼熟变成掌握。</p>
+      </header>
+
+      <section class="add-panel" aria-labelledby="addTitle">
+        <div class="section-heading">
+          <h2 id="addTitle">添加生词</h2>
+          <span>中文可选填</span>
+        </div>
+        <form id="addForm" autocomplete="off">
+          <div class="input-row">
+            <label>
+              <span class="sr-only">英文单词</span>
+              <input id="wordInput" name="word" type="text" maxlength="64" placeholder="English word" spellcheck="false" required>
+            </label>
+            <button class="add-button" id="addButton" type="submit" aria-label="添加单词">＋</button>
+          </div>
+          <label>
+            <span class="sr-only">中文翻译</span>
+            <input id="translationInput" name="translation" type="text" maxlength="240" placeholder="中文翻译（留空则自动获取）">
+          </label>
+        </form>
+      </section>
+
+      <section class="library" aria-labelledby="libraryTitle">
+        <div class="library-toolbar">
+          <div>
+            <p class="eyebrow">MY WORDS</p>
+            <h2 id="libraryTitle">生词库 <span id="wordCount">0</span></h2>
+          </div>
+          <label class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <span class="sr-only">搜索词库</span>
+            <input id="searchInput" type="search" placeholder="搜索">
+          </label>
+        </div>
+
+        <div id="wordList" class="word-list"></div>
+        <div id="emptyState" class="empty-state">
+          <div class="empty-mark" aria-hidden="true">Aa</div>
+          <h3>还没有生词</h3>
+          <p>在网页上选中一个英文单词，点击“保存并高亮”，它就会出现在这里。</p>
+        </div>
+        <div id="noResultState" class="empty-state compact hidden">
+          <h3>没有匹配的单词</h3>
+          <p>换个关键词试试。</p>
+        </div>
+      </section>
+
+      <footer>
+        <span id="highlightStatus">网页高亮已开启</span>
+        <button id="clearButton" class="clear-button" type="button">清空词库</button>
+      </footer>
+    </main>
+
+    <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
+
+    <script src="shared.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

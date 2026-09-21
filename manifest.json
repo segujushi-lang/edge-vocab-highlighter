@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "拾词 · 网页生词荧光笔",
+  "short_name": "拾词",
+  "version": "1.0.0",
+  "description": "保存陌生英文单词，在网页中自动高亮，点击即可查看中文翻译。",
+  "permissions": [
+    "storage",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "https://api.mymemory.translated.net/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "拾词 · 管理生词",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "shared.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

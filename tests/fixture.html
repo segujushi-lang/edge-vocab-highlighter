@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Vocab highlighter fixture</title>
+    <style>
+      body { font: 18px/1.6 system-ui, sans-serif; margin: 48px; max-width: 760px; }
+      #target { font-size: 24px; }
+    </style>
+  </head>
+  <body>
+    <h1>Extension smoke test</h1>
+    <p id="target"><span id="select-word">Serendipity</span> rewards the curious, while category and bobcat should stay untouched.</p>
+    <div id="dynamic"></div>
+    <script>
+      window.addDynamicText = () => {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = "A second serendipity appeared after a dynamic DOM update.";
+        document.getElementById("dynamic").append(paragraph);
+      };
+    </script>
+  </body>
+</html>
